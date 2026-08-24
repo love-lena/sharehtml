@@ -8,7 +8,7 @@ I've been using coding agents to write in markdown, make slides, and build inter
 
 Deploy a local document, get a link where others can view it and collaborate with comments, reactions, and live presence. Re-deploy to update the content at the same URL. Markdown and common code files are converted to styled HTML automatically.
 
-- **CLI deploys** — `sharehtml deploy report.html` → `https://sharehtml.yourteam.workers.dev/d/9brkzbe67ntm`
+- **CLI deploys** — `sharehtml deploy report.html` → `https://artifacts.example.com/d/9brkzbe67ntm`
 - **Collaborative** — comments, threaded replies, emoji reactions, text anchoring
 - **Live presence** — see who's viewing and their selections
 - **Home page** — your documents and recently viewed docs shared with you
@@ -23,14 +23,14 @@ Deploy a local document, get a link where others can view it and collaborate wit
 ## Quick Start
 
 ```bash
-git clone https://github.com/jonesphillip/sharehtml.git
+git clone https://github.com/love-lena/sharehtml.git
 cd sharehtml
 pnpm install
 npx wrangler login
 pnpm run setup
 ```
 
-The interactive setup script walks you through everything: deploying the worker, installing the CLI, and configuring authentication. Cloudflare Access is optional — the setup script asks if you want authentication. Without it, anyone with a link can view and comment.
+The interactive setup script walks you through the Custom Domain or `workers.dev` choice, R2 bucket creation, deployment, CLI installation, and authentication. Cloudflare Access is optional — without it, anyone with a link can view and comment. For a concrete personal-domain walkthrough, see [Personal Cloudflare deployment](docs/personal-cloudflare.md).
 If you enable Cloudflare Access, setup also provisions the production `VIEWER_CAPABILITY_SECRET` used to sign browser capability tokens for the trusted viewer shell.
 
 To install the CLI directly:
@@ -48,7 +48,7 @@ If your team already has a sharehtml worker deployed, this is probably all you n
 If you enable Cloudflare Access, you'll need a [Cloudflare API token](https://dash.cloudflare.com/profile/api-tokens) with these permissions:
 - **Account > Access: Apps and Policies > Edit**
 - **Account > Access: Organization, Identity Providers, and Groups > Read**
-- **Account > Workers Scripts > Read** (to resolve your workers.dev subdomain)
+- **Account > Workers Scripts > Read** (only when resolving a `workers.dev` subdomain)
 
 When it's done, try deploying one of the included examples:
 
@@ -114,6 +114,16 @@ Browser ◄┘──► Durable Objects
 | **DocumentDO** | Per-document Durable Object — comments, reactions, real-time presence over WebSocket |
 | **[R2](https://developers.cloudflare.com/r2/)** | Stores the actual HTML files |
 | **CLI** | Bun-based command-line tool for deploying and managing documents |
+
+### Uploaded document security
+
+Uploaded documents run in a sandboxed iframe and receive a restrictive Content Security Policy. Inline scripts and styles are supported for self-contained artifacts; network connections, external subresources, forms, objects, and nested frames are blocked. Images, fonts, and media must be embedded as `data:` or `blob:` URLs. Opening an external link through the trusted viewer shell requires a browser confirmation.
+
+When Markdown images are converted to data URLs, the CLI only reads supported image files inside the Markdown file's own directory. Parent-directory paths and symlinks that escape that directory are left untouched.
+
+### Custom domains
+
+Choose **Publish on a custom domain** during `pnpm run setup` and enter a hostname such as `artifacts.example.com`. The hostname must be in an active Cloudflare zone with no conflicting DNS record. Setup writes a Workers Custom Domain route and disables the public `workers.dev` endpoint; Cloudflare then manages DNS and TLS automatically.
 
 ## CLI Commands
 

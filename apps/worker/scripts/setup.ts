@@ -3,6 +3,12 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { resolve } from "node:path";
+import {
+  normalizeCustomHostname,
+  readSetupConfig,
+  updateProductionConfiguration,
+  type DeploymentTarget,
+} from "./setup-config";
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[22m`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[22m`;
@@ -132,6 +138,11 @@ function prompt(question: string): Promise<string> {
       resolve(answer.trim());
     });
   });
+}
+
+async function promptWithDefault(question: string, defaultValue: string): Promise<string> {
+  const answer = await prompt(`${question} ${dim(`(${defaultValue})`)}`);
+  return answer || defaultValue;
 }
 
 function promptSecret(question: string): Promise<string> {
@@ -331,42 +342,16 @@ function findWranglerConfig(): string {
   fail("No wrangler config found. Expected wrangler.jsonc, wrangler.json, or wrangler.toml in apps/worker/");
 }
 
-function parseWranglerConfig(path: string): { name: string } {
-  const raw = readFileSync(path, "utf-8");
+function writeWranglerProductionConfiguration(
+  path: string,
+  vars: Record<string, string>,
+  target: DeploymentTarget,
+): void {
   if (path.endsWith(".toml")) {
-    const match = raw.match(/^name\s*=\s*"(.+)"/m);
-    if (!match) fail("Could not parse worker name from wrangler.toml");
-    return { name: match[1] };
+    throw new Error("Custom-domain setup requires wrangler.json or wrangler.jsonc");
   }
-  const cleaned = raw
-    .replace(/"(?:[^"\\]|\\.)*"/g, (m) => m.replace(/\/\//g, "\0\0"))
-    .replace(/\/\/.*$/gm, "")
-    .replace(/\0\0/g, "//")
-    .replace(/,\s*([\]}])/g, "$1");
-  const config = JSON.parse(cleaned);
-  // Use the production env name if available, since that's what we deploy
-  const prodName = config.env?.production?.name;
-  if (prodName) config.name = prodName;
-  return config;
-}
-
-function writeWranglerProductionVars(path: string, vars: Record<string, string>): void {
-  let content = readFileSync(path, "utf-8");
-
-  const productionVarsPattern = /("production"\s*:\s*\{[\s\S]*?"vars"\s*:\s*\{)([\s\S]*?)(\})/;
-  const match = content.match(productionVarsPattern);
-  if (!match) {
-    throw new Error("Could not find env.production.vars block in wrangler config");
-  }
-
-  let varsBlock = match[2];
-  for (const [key, value] of Object.entries(vars)) {
-    const pattern = new RegExp(`("${key}"\\s*:\\s*)"[^"]*"`, "g");
-    varsBlock = varsBlock.replace(pattern, `$1"${value}"`);
-  }
-
-  content = content.replace(match[0], match[1] + varsBlock + match[3]);
-  writeFileSync(path, content, "utf-8");
+  const content = readFileSync(path, "utf-8");
+  writeFileSync(path, updateProductionConfiguration(content, vars, target), "utf-8");
 }
 
 function stripAnsi(value: string): string {
@@ -441,6 +426,18 @@ function parseSecretList(output: string): string[] {
     secrets.push(entry.name);
   }
   return secrets;
+}
+
+async function ensureR2Bucket(name: string): Promise<"created" | "existing"> {
+  try {
+    await run("npx", ["wrangler", "r2", "bucket", "info", name, "--json"]);
+    return "existing";
+  } catch (error: unknown) {
+    const message = formatCommandError(error);
+    if (!message.includes("specified bucket does not exist")) throw error;
+    await run("npx", ["wrangler", "r2", "bucket", "create", name]);
+    return "created";
+  }
 }
 
 function shouldTreatSecretListFailureAsMissingWorker(message: string): boolean {
@@ -956,7 +953,7 @@ async function main() {
 
   // Detect project config
   const configPath = findWranglerConfig();
-  const config = parseWranglerConfig(configPath);
+  const config = readSetupConfig(readFileSync(configPath, "utf-8"));
   s.stop();
 
   console.log(`  ${dim("worker")}    ${bold(config.name)}`);
@@ -965,6 +962,29 @@ async function main() {
 
   if (!(await confirm("Deploy to Cloudflare?"))) {
     process.exit(0);
+  }
+
+  let deploymentTarget: DeploymentTarget = { kind: "workers-dev" };
+  const useCustomDomain = await confirm(
+    "Publish on a custom domain?",
+    config.customHostname !== null,
+  );
+  if (useCustomDomain) {
+    const defaultHostname = config.customHostname ?? "artifacts.example.com";
+    while (true) {
+      const rawHostname = await promptWithDefault("Custom hostname:", defaultHostname);
+      const hostname = normalizeCustomHostname(rawHostname);
+      if (hostname) {
+        deploymentTarget = { kind: "custom-domain", hostname };
+        break;
+      }
+      console.log(`  ${dim("Enter a hostname such as artifacts.example.com (no scheme or path).")}`);
+    }
+    if (config.customHostname && config.customHostname !== deploymentTarget.hostname) {
+      console.log();
+      console.log(`  ${dim(`The old hostname ${config.customHostname} is no longer in this config.`)}`);
+      console.log(`  ${dim("Remove its DNS record and Access app manually after verifying the new hostname.")}`);
+    }
   }
 
   const accountId = wranglerAccount.id;
@@ -979,7 +999,9 @@ async function main() {
     console.log(`  Create a Cloudflare API token with these permissions:`);
     console.log(`    ${dim("-")} Access: Apps and Policies Edit`);
     console.log(`    ${dim("-")} Access: Organizations Read`);
-    console.log(`    ${dim("-")} Workers Scripts Read ${dim("(to resolve workers.dev subdomain)")}`);
+    if (deploymentTarget.kind === "workers-dev") {
+      console.log(`    ${dim("-")} Workers Scripts Read ${dim("(to resolve workers.dev subdomain)")}`);
+    }
     console.log(`  ${dim("Used once to configure Access policies, then discarded.")}`);
     console.log();
     if (await confirm(`Open ${cyan(cfTokenUrl)}?`)) {
@@ -998,24 +1020,26 @@ async function main() {
       fail(`Invalid token: ${getErrorMessage(error)}`);
     }
 
-    // Resolve the workers.dev hostname so we can configure the Access app
-    s = spinner("Resolving workers.dev hostname...", true);
     let hostname: string;
-    try {
-      const subdomainResult = parseWorkersSubdomain(
-        await cfApi(cfToken, "GET", `/accounts/${accountId}/workers/subdomain`),
-      );
-      if (!subdomainResult) {
-        throw new Error("invalid workers subdomain response");
+    if (deploymentTarget.kind === "custom-domain") {
+      hostname = deploymentTarget.hostname;
+      console.log(`  ${dim("hostname")}  ${hostname}`);
+    } else {
+      s = spinner("Resolving workers.dev hostname...", true);
+      try {
+        const subdomainResult = parseWorkersSubdomain(
+          await cfApi(cfToken, "GET", `/accounts/${accountId}/workers/subdomain`),
+        );
+        if (!subdomainResult) throw new Error("invalid workers subdomain response");
+        hostname = `${config.name}.${subdomainResult.subdomain}.workers.dev`;
+        s.stop(`Hostname: ${hostname}`);
+      } catch {
+        s.stop();
+        fail(
+          "Could not resolve workers.dev subdomain.\n" +
+            "Ensure your API token has Workers Scripts Read permission, or deploy once first with `pnpm run deploy`.",
+        );
       }
-      hostname = `sharehtml.${subdomainResult.subdomain}.workers.dev`;
-      s.stop(`Hostname: ${hostname}`);
-    } catch {
-      s.stop();
-      fail(
-        "Could not resolve workers.dev subdomain.\n" +
-          "Ensure your API token has Workers Scripts Read permission, or deploy once first with `pnpm run deploy`.",
-      );
     }
 
     while (true) {
@@ -1097,16 +1121,27 @@ async function main() {
     }
   }
 
-  s = spinner("Updating wrangler.jsonc production vars...", true);
+  s = spinner("Updating wrangler.jsonc production configuration...", true);
   const productionVars: Record<string, string> = useAccess
     ? { AUTH_MODE: "access", ACCESS_AUD: accessAud, ACCESS_TEAM: accessTeam }
-    : { AUTH_MODE: "none" };
+    : { AUTH_MODE: "none", ACCESS_AUD: "", ACCESS_TEAM: "" };
   try {
-    writeWranglerProductionVars(configPath, productionVars);
-    s.stop("Production vars updated");
+    writeWranglerProductionConfiguration(configPath, productionVars, deploymentTarget);
+    s.stop("Production configuration updated");
   } catch (error: unknown) {
     s.stop();
     fail(`Failed to update wrangler.jsonc: ${getErrorMessage(error)}`);
+  }
+
+  s = spinner(`Ensuring R2 bucket ${config.bucketName}...`, true);
+  try {
+    const status = await ensureR2Bucket(config.bucketName);
+    s.stop(status === "created" ? `R2 bucket ${config.bucketName} created` : `R2 bucket ${config.bucketName} already exists`);
+  } catch (error: unknown) {
+    s.stop();
+    const message = formatCommandError(error);
+    if (isMissingR2Error(message)) fail(getR2SetupMessage());
+    fail(`Failed to configure R2 bucket: ${message}`);
   }
 
   if (useAccess) {
@@ -1129,11 +1164,13 @@ async function main() {
   try {
     await run("npx", ["vite", "build"], { env: { CLOUDFLARE_ENV: "production" } });
     const output = await run("npx", ["wrangler", "deploy", "--env", "production"], { input: "y\n" });
-    const urlMatch = output.match(/https:\/\/[\w.-]+\.workers\.dev/);
-    if (!urlMatch) {
-      throw new Error("Could not parse worker URL from deploy output.");
+    if (deploymentTarget.kind === "custom-domain") {
+      workerUrl = `https://${deploymentTarget.hostname}`;
+    } else {
+      const urlMatch = output.match(/https:\/\/[\w.-]+\.workers\.dev/);
+      if (!urlMatch) throw new Error("Could not parse worker URL from deploy output.");
+      workerUrl = urlMatch[0];
     }
-    workerUrl = urlMatch[0];
     s.stop(`Deployed ${cyan(workerUrl)}`);
   } catch (error: unknown) {
     s.stop();
@@ -1167,7 +1204,7 @@ async function main() {
     if (await confirm("Install the sharehtml CLI globally?")) {
       s = spinner("Installing CLI...");
       try {
-        await run("pnpm", ["--filter", "@sharehtml/cli", "run", "build"]);
+        await run("pnpm", ["--filter", "./apps/cli", "run", "build"]);
         await run("bun", ["link"], { cwd: resolve(import.meta.dirname, "../../cli") });
         s.stop("CLI installed");
         cliCmd = "sharehtml";

@@ -22,6 +22,38 @@ test.describe("viewer security", () => {
     }));
   });
 
+  test("blocks network egress from uploaded HTML", async ({ page, request }) => {
+    const escapedRequests: string[] = [];
+    await page.route("https://egress.invalid/**", async (route) => {
+      escapedRequests.push(route.request().url());
+      await route.fulfill({ status: 200, body: "escaped" });
+    });
+
+    const doc = await createDocument(request, {
+      filename: "egress.html",
+      title: "Egress",
+      html: `<!doctype html><html><body>
+        <p id="fetch-status">pending</p>
+        <p id="image-status">pending</p>
+        <script>
+          fetch("https://egress.invalid/fetch")
+            .then(() => document.querySelector("#fetch-status").textContent = "escaped")
+            .catch(() => document.querySelector("#fetch-status").textContent = "blocked");
+          const image = new Image();
+          image.onload = () => document.querySelector("#image-status").textContent = "escaped";
+          image.onerror = () => document.querySelector("#image-status").textContent = "blocked";
+          image.src = "https://egress.invalid/pixel.png";
+        </script>
+      </body></html>`,
+    });
+    createdDocIds.push(doc.id);
+
+    const frame = await openViewer(page, doc.id);
+    await expect(frame.locator("#fetch-status")).toHaveText("blocked");
+    await expect(frame.locator("#image-status")).toHaveText("blocked");
+    expect(escapedRequests).toEqual([]);
+  });
+
   test("ignores hostile iframe mutation messages", async ({ page, request }) => {
     const doc = await createDocument(request, {
       filename: "hostile.html",

@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { dirname, extname, resolve } from "node:path";
+import { readFileSync, realpathSync } from "node:fs";
+import { dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import hljs from "highlight.js";
 import { marked } from "marked";
 import { markedHighlight } from "marked-highlight";
@@ -230,17 +230,37 @@ export function getCodeLanguage(filename: string): string | null {
 }
 
 function inlineRelativeImages(markdown: string, filePath: string): string {
-  const dir = dirname(filePath);
+  const dir = realpathSync(dirname(filePath));
 
   return markdown.replace(
     /!\[([^\]]*)\]\((\.[^)]+)\)/g,
     (_match, alt: string, imgPath: string) => {
-      const absPath = resolve(dir, imgPath);
+      const resolvedPath = resolve(dir, imgPath);
       try {
-        const data = readFileSync(absPath).toString("base64");
+        const absPath = realpathSync(resolvedPath);
+        const pathFromDocument = relative(dir, absPath);
+        if (pathFromDocument.startsWith(`..${sep}`) ||
+          pathFromDocument === ".." || isAbsolute(pathFromDocument)) {
+          console.error(`Warning: image path leaves the document directory: ${imgPath}`);
+          return _match;
+        }
+
         const ext = extname(absPath).slice(1).toLowerCase();
-        const mime =
-          ext === "svg" ? "image/svg+xml" : ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+        const mimeByExtension: Record<string, string> = {
+          avif: "image/avif",
+          gif: "image/gif",
+          jpeg: "image/jpeg",
+          jpg: "image/jpeg",
+          png: "image/png",
+          svg: "image/svg+xml",
+          webp: "image/webp",
+        };
+        const mime = mimeByExtension[ext];
+        if (!mime) {
+          console.error(`Warning: unsupported image type: ${imgPath}`);
+          return _match;
+        }
+        const data = readFileSync(absPath).toString("base64");
         return `![${alt}](data:${mime};base64,${data})`;
       } catch {
         console.error(`Warning: image not found: ${imgPath}`);

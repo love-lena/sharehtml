@@ -7,6 +7,7 @@ import {
   WEBSOCKET_CAPABILITY_PROTOCOL_PREFIX,
   WEBSOCKET_SUBPROTOCOL,
 } from "../utils/security-constants.js";
+import { injectArtifactContentSecurityPolicy } from "../utils/artifact-security.js";
 
 type AuthMode = "access" | "none";
 type ShareMode = "private" | "link" | "emails";
@@ -682,7 +683,7 @@ function escapeInlineScript(script: string): string {
 
 function injectDocumentRuntime(html: string, collabScriptText: string): string {
   const collabScript = `<script type="module">${escapeInlineScript(collabScriptText)}</script>`;
-  return injectTag(html, collabScript, "</body>");
+  return injectArtifactContentSecurityPolicy(injectTag(html, collabScript, "</body>"));
 }
 
 function renderIframeError(message: string) {
@@ -755,6 +756,10 @@ function openDocumentLink(rawHref: unknown) {
   }
 
   if (!["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) {
+    return;
+  }
+
+  if (!window.confirm(`Open this external link?\n\n${url.toString()}`)) {
     return;
   }
 
