@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
 import { Command } from "commander";
-import { getDocumentSharing, getDocumentUrl, setDocumentSharing } from "../api/client.js";
+import { getDocumentSharing, getPublicDocumentUrl, setDocumentSharing } from "../api/client.js";
 import { deploymentRequiresLogin } from "../auth/capabilities.js";
 import { resolveDocumentReference } from "./share-utils.js";
 
@@ -76,7 +76,7 @@ export const shareCmd = new Command("share")
       await setDocumentSharing(doc.id, { mode: "link" });
       console.log(`Shared: ${doc.title}`);
       console.log(`  id:  ${doc.id}`);
-      console.log(`  url: ${getDocumentUrl(doc.id)}`);
+      console.log(`  url: ${getPublicDocumentUrl(doc.id)}`);
     } catch (err) {
       console.error(`Error: ${(err as Error).message}`);
       process.exit(1);

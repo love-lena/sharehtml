@@ -123,3 +123,46 @@ describe("Access control honors share modes", () => {
     expect(allowedRes.status).toBe(101);
   });
 });
+
+describe("Anonymous public viewer", () => {
+  it("serves link-shared documents without exposing owner or collaboration UI", async () => {
+    await createDoc("public-link", "owner-secret@example.com", 1);
+
+    const response = await exports.default.fetch("https://example.com/p/public-link");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+    expect(response.headers.get("Content-Security-Policy")).toContain("default-src 'none'");
+
+    const html = await response.text();
+    expect(html).toContain("public · read only");
+    expect(html).not.toContain("owner-secret@example.com");
+    expect(html).not.toContain("comments");
+  });
+
+  it("serves rendered bytes only while the document remains link-shared", async () => {
+    const reg = await createDoc("public-content", "other@example.com", 1);
+
+    const first = await exports.default.fetch("https://example.com/p/public-content/content");
+    expect(first.status).toBe(200);
+    expect(first.headers.get("Cache-Control")).toBe("no-store");
+    expect(new TextDecoder().decode(await first.arrayBuffer())).toBe("<h1>test</h1>");
+
+    await reg.setDocumentShareMode("public-content", 0);
+
+    const revokedShell = await exports.default.fetch("https://example.com/p/public-content");
+    const revokedContent = await exports.default.fetch("https://example.com/p/public-content/content");
+    expect(revokedShell.status).toBe(404);
+    expect(revokedContent.status).toBe(404);
+  });
+
+  it("does not expose private or email-shared documents", async () => {
+    await createDoc("public-private", "dev@localhost", 0);
+    const reg = await createDoc("public-email", "other@example.com", 2);
+    await reg.setSharedEmails("public-email", ["dev@localhost"]);
+
+    expect((await exports.default.fetch("https://example.com/p/public-private")).status).toBe(404);
+    expect((await exports.default.fetch("https://example.com/p/public-email")).status).toBe(404);
+    expect((await exports.default.fetch("https://example.com/p/public-email/content")).status).toBe(404);
+  });
+});

@@ -7,7 +7,7 @@ This guide publishes a private ShareHTML instance at `artifacts.lena.dog`. Cloud
 1. In the [Cloudflare dashboard](https://dash.cloudflare.com/), confirm `lena.dog` is an **Active** zone in the account you intend to use.
 2. In **DNS > Records**, make sure there is no existing record named `artifacts`. Wrangler will create the DNS record and certificate when it deploys the Custom Domain.
 3. Open **Storage & databases > R2 object storage** and enable R2. Cloudflare may require checkout even when your usage stays inside the free allowance. The setup script creates the `sharehtml-documents` bucket.
-4. Open **Zero Trust**, choose **Get started**, and select a team name. New organizations include Cloudflare login restricted to members of your account, which is the recommended choice for a personal instance. Add **One-time PIN** under **Integrations > Identity providers** only if you want to invite people who should not need Cloudflare accounts.
+4. Open **Zero Trust**, choose **Get started**, and select a team name. New organizations include Cloudflare login restricted to members of your account, which is the recommended choice for a personal instance. Add **One-time PIN** under **Integrations > Identity providers** only if you want specific collaborators to authenticate by email. Anonymous public links do not use OTP.
 5. Install the local prerequisites from the main README, then authenticate Wrangler:
 
    ```bash
@@ -44,6 +44,11 @@ The setup script asks for a short-lived Cloudflare API token to create the Acces
 
 `Workers Scripts > Read` is only needed when using a `workers.dev` hostname. The token is held in memory for the setup run and is not written to disk. Revoke it after setup.
 
+Setup creates two Access applications:
+
+- `artifacts.lena.dog` uses your allow policy and protects all private and management routes.
+- `artifacts.lena.dog/p/*` uses an Everyone Bypass policy. These requests still pass through the Worker, which returns content only when that document is currently in link-sharing mode.
+
 Wrangler's own browser login handles the Worker, R2, Durable Objects, route, DNS, and certificate. The generated Custom Domain route is equivalent to:
 
 ```json
@@ -70,6 +75,15 @@ sharehtml deploy example/coffee-report.html
 1. Open `https://artifacts.lena.dog` in a private browser window and confirm Cloudflare Access challenges you.
 2. Complete the login and confirm the ShareHTML home page loads.
 3. Deploy the example and open the returned document URL.
+
+Then verify anonymous sharing and revocation:
+
+```bash
+sharehtml share <document-id> --link
+# Open the printed /p/... URL in a private browser window; no login should appear.
+sharehtml unshare <document-id>
+# The same /p/... URL should now return 404.
+```
 
 Also confirm there is no usable production `workers.dev` URL. Setup writes `workers_dev: false` for a Custom Domain.
 

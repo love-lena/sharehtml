@@ -70,6 +70,7 @@ describe("Document API", () => {
     const doc = getRecord(await uploadRes.json());
     expect(getStringField(doc, "title")).toBe("Test Doc");
     expect(getStringField(doc, "filename")).toBe("test.html");
+    expect(getStringField(doc, "shareMode")).toBe("link");
     const docId = getStringField(doc, "id");
     expect(docId).toBeTruthy();
 

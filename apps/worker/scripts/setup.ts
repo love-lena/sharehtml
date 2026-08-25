@@ -296,6 +296,11 @@ function isApiAccessDomain(domain: string | undefined, hostname: string): boolea
   );
 }
 
+function isPublicAccessDomain(domain: string | undefined, hostname: string): boolean {
+  const normalized = normalizeAccessDomain(domain);
+  return normalized === `${hostname}/p` || normalized === `${hostname}/p*` || normalized === `${hostname}/p/*`;
+}
+
 function resolveAppPolicies(app: AccessApp, policies: AccessPolicy[]): AccessPolicy[] {
   if (!Array.isArray(app?.policies)) return [];
   return app.policies
@@ -851,6 +856,85 @@ async function reconcileRootAccessApp(
   return parsedApp;
 }
 
+async function ensurePublicBypassAccessApp(
+  cfToken: string,
+  accountId: string,
+  hostname: string,
+  appName: string,
+  existingApps: AccessApp[],
+  existingPolicies: AccessPolicy[],
+): Promise<void> {
+  const publicAppName = `${appName}-public`;
+  const publicPolicyName = `${appName}-public-bypass`;
+  const matchingApps = existingApps.filter((app) => isPublicAccessDomain(app.domain, hostname));
+
+  if (matchingApps.length > 1) {
+    fail("Multiple /p Access apps exist for this hostname. Remove the duplicates manually, then run setup again.");
+  }
+  if (matchingApps[0] && matchingApps[0].name !== publicAppName) {
+    fail(
+      `The /p path is already managed by Access app ${matchingApps[0].name || matchingApps[0].id}. Remove or rename it before running setup.`,
+    );
+  }
+
+  let bypassPolicy = existingPolicies.find((policy) => policy.name === publicPolicyName);
+  if (bypassPolicy && (bypassPolicy.decision !== "bypass" || !policyIncludesEveryone(bypassPolicy))) {
+    fail(`Access policy ${publicPolicyName} exists but is not an Everyone bypass policy.`);
+  }
+  if (!bypassPolicy) {
+    bypassPolicy = parseAccessPolicy(
+      await cfApi(cfToken, "POST", `/accounts/${accountId}/access/policies`, {
+        name: publicPolicyName,
+        decision: "bypass",
+        include: [{ everyone: {} }],
+      }),
+    ) ?? undefined;
+  }
+  if (!bypassPolicy) {
+    throw new Error("invalid public bypass policy response");
+  }
+
+  const publicAppSummary = matchingApps[0];
+  if (!publicAppSummary) {
+    const created = parseAccessApp(
+      await cfApi(cfToken, "POST", `/accounts/${accountId}/access/apps`, {
+        name: publicAppName,
+        domain: `${hostname}/p/*`,
+        type: "self_hosted",
+        session_duration: "24h",
+        policies: [{ id: bypassPolicy.id }],
+      }),
+    );
+    if (!created) throw new Error("invalid public Access app response");
+    return;
+  }
+
+  const publicApp = parseAccessApp(
+    await cfApi(cfToken, "GET", `/accounts/${accountId}/access/apps/${publicAppSummary.id}`),
+  );
+  if (!publicApp) throw new Error("invalid public Access app response");
+
+  const attachedPolicyIds = (publicApp.policies ?? [])
+    .map((policy) => typeof policy === "string" ? policy : policy.id)
+    .filter((id): id is string => Boolean(id));
+  if (
+    attachedPolicyIds.length === 1 &&
+    attachedPolicyIds[0] === bypassPolicy.id
+  ) {
+    return;
+  }
+
+  const updated = parseAccessApp(
+    await cfApi(cfToken, "PUT", `/accounts/${accountId}/access/apps/${publicApp.id}`, {
+      ...publicApp,
+      name: publicAppName,
+      domain: `${hostname}/p/*`,
+      policies: [{ id: bypassPolicy.id }],
+    }),
+  );
+  if (!updated) throw new Error("invalid public Access app response");
+}
+
 async function migrateLegacyApiAccessApp(
   cfToken: string,
   accountId: string,
@@ -1014,14 +1098,7 @@ async function main() {
   const useAccess = await confirm("Require authentication with Cloudflare Access?");
   let accessAud = config.accessAud;
   let accessTeam = config.accessTeam;
-  const canReuseAccess = useAccess && config.authMode === "access" && accessAud && accessTeam;
-  const reuseAccess = canReuseAccess
-    ? await confirm("Keep the existing Access configuration and policies?", true)
-    : false;
-
-  if (reuseAccess) {
-    console.log(`  ${dim("access")}    reusing existing application configuration`);
-  } else if (useAccess) {
+  if (useAccess) {
     console.log();
     const cfTokenUrl = "https://dash.cloudflare.com/profile/api-tokens";
     console.log(`  Create a Cloudflare API token with these permissions:`);
@@ -1108,6 +1185,17 @@ async function main() {
           selectedPolicies,
         );
         s.stop(`Access configured for ${selectedPolicies.policyLabels.join(", ")}`);
+
+        s = spinner("Configuring anonymous public links...", true);
+        await ensurePublicBypassAccessApp(
+          cfToken,
+          accountId,
+          hostname,
+          config.name,
+          existingApps,
+          existingPolicies,
+        );
+        s.stop("Anonymous public links enabled at /p/*");
 
         await migrateLegacyApiAccessApp(
           cfToken,

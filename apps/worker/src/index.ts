@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import type { AppBindings } from "./types.js";
 import { authMiddleware } from "./utils/auth.js";
 import { api } from "./routes/api.js";
+import { publicViewer } from "./routes/public-viewer.js";
 import { viewer } from "./routes/viewer.js";
 import { HomeView } from "./frontend/home.js";
 import { createCapabilityToken } from "./utils/capability.js";
@@ -32,6 +33,7 @@ app.onError((err, c) => {
 });
 
 app.get("/health", (c) => c.json({ status: "ok" }));
+app.route("/", publicViewer);
 
 app.use("/*", authMiddleware);
 

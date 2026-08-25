@@ -6,7 +6,7 @@ This package is the Bun CLI for deploying documents to a sharehtml worker.
 
 ## What is sharehtml?
 
-Deploy a local document, get a link where others can view it and collaborate with comments, reactions, and live presence. Re-deploy to update the content at the same URL. Markdown and common code files are converted to styled HTML automatically.
+Deploy a local document privately, collaborate with named people, or publish an anonymous read-only link. Re-deploy to update the content at the same URL. Markdown and common code files are converted to styled HTML automatically.
 
 - **CLI deploys** — `sharehtml deploy report.html` → `https://sharehtml.yourteam.workers.dev/d/9brkzbe67ntm`
 - **Collaborative** — comments, threaded replies, emoji reactions, text anchoring
@@ -72,7 +72,7 @@ If a document with the same filename exists, the CLI will prompt to update it. U
 | `sharehtml diff <file>` | Compare local file against the deployed version |
 | `sharehtml comments <id>` | Show unresolved comments for a document |
 | `sharehtml delete <id>` | Delete a document |
-| `sharehtml share <document>` | Share by link, or `--add`/`--remove` emails |
+| `sharehtml share <document>` | Publish an anonymous read-only link, or `--add`/`--remove` collaborator emails |
 | `sharehtml unshare <document>` | Make a document private |
 | `sharehtml skill install` | Install the agent skill for Claude Code, Codex, or OpenCode |
 | `sharehtml login` | Log in through Cloudflare Access |

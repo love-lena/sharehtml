@@ -20,6 +20,7 @@ interface DeployResult {
   filename: string;
   size: number;
   isShared: boolean;
+  shareMode: "private" | "link" | "emails";
 }
 
 interface DocumentMeta {
@@ -364,4 +365,9 @@ export async function getDocumentComments(id: string): Promise<DocumentCommentsR
 export function getDocumentUrl(id: string): string {
   const { workerUrl } = getClient();
   return `${workerUrl}/d/${id}`;
+}
+
+export function getPublicDocumentUrl(id: string): string {
+  const { workerUrl } = getClient();
+  return `${workerUrl}/p/${id}`;
 }

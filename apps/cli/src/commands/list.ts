@@ -16,7 +16,11 @@ export const listCmd = new Command("list")
       console.log(`${documents.length} document(s):\n`);
       for (const doc of documents) {
         const size = (doc.size / 1024).toFixed(1);
-        const visibility = doc.is_shared ? "shareable" : "private";
+        const visibility = doc.is_shared === 1
+          ? "public"
+          : doc.is_shared === 2
+          ? "specific people"
+          : "private";
         console.log(`  ${doc.id}  ${doc.title}  (${size}KB)  ${visibility}  ${doc.created_at}`);
       }
     } catch (err) {

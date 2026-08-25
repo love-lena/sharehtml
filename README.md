@@ -6,12 +6,13 @@ I've been using coding agents to write in markdown, make slides, and build inter
 
 ## What is sharehtml?
 
-Deploy a local document, get a link where others can view it and collaborate with comments, reactions, and live presence. Re-deploy to update the content at the same URL. Markdown and common code files are converted to styled HTML automatically.
+Deploy a local document privately, then choose whether to collaborate with named people or publish an anonymous read-only link. Re-deploy to update the content at the same URL. Markdown and common code files are converted to styled HTML automatically.
 
 - **CLI deploys** — `sharehtml deploy report.html` → `https://artifacts.example.com/d/9brkzbe67ntm`
 - **Collaborative** — comments, threaded replies, emoji reactions, text anchoring
 - **Live presence** — see who's viewing and their selections
 - **Home page** — your documents and recently viewed docs shared with you
+- **Public links** — anonymous, read-only `/p/...` links with immediate revocation
 - **Self-hosted** — runs on your own Cloudflare account
 
 ## Prerequisites
@@ -30,8 +31,8 @@ npx wrangler login
 pnpm run setup
 ```
 
-The interactive setup script walks you through the Custom Domain or `workers.dev` choice, R2 bucket creation, deployment, CLI installation, and authentication. Cloudflare Access is optional — without it, anyone with a link can view and comment. For a concrete personal-domain walkthrough, see [Personal Cloudflare deployment](docs/personal-cloudflare.md).
-If you enable Cloudflare Access, setup also provisions the production `VIEWER_CAPABILITY_SECRET` used to sign browser capability tokens for the trusted viewer shell.
+The interactive setup script walks you through the Custom Domain or `workers.dev` choice, R2 bucket creation, deployment, CLI installation, and authentication. For a concrete personal-domain walkthrough, see [Personal Cloudflare deployment](docs/personal-cloudflare.md).
+If you enable Cloudflare Access, setup protects the home page, private viewers, collaboration, and APIs while creating a more-specific Access Bypass application for anonymous read-only `/p/*` links. It also provisions the production `VIEWER_CAPABILITY_SECRET` used to sign browser capability tokens for the trusted authenticated viewer shell.
 
 To install the CLI directly:
 
@@ -124,6 +125,17 @@ When Markdown images are converted to data URLs, the CLI only reads supported im
 ### Custom domains
 
 Choose **Publish on a custom domain** during `pnpm run setup` and enter a hostname such as `artifacts.example.com`. The hostname must be in an active Cloudflare zone with no conflicting DNS record. Setup writes a Workers Custom Domain route and disables the public `workers.dev` endpoint; Cloudflare then manages DNS and TLS automatically.
+
+### Sharing model
+
+Documents are private by default when Cloudflare Access is enabled:
+
+- `/d/:id` is the authenticated viewer. Owners and explicitly listed email addresses can collaborate here.
+- `/p/:id` is an anonymous, read-only viewer and only serves documents in link-sharing mode.
+- `sharehtml share <document> --link` enables the public route and prints its `/p/...` URL.
+- `sharehtml unshare <document>` disables both the public shell and content endpoint immediately. Public responses use `Cache-Control: no-store` and are marked `noindex`.
+
+The Worker checks the document's current share mode on every public shell and content request. The document ID is not treated as the authorization check. Upload, source download, comments, WebSockets, document listing, and sharing controls remain behind Cloudflare Access.
 
 ## CLI Commands
 

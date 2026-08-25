@@ -7,6 +7,7 @@ import {
   findDocumentByFilename,
   getDocument,
   getDocumentUrl,
+  getPublicDocumentUrl,
   updateDocument,
 } from "../api/client.js";
 import { deploymentRequiresLogin } from "../auth/capabilities.js";
@@ -24,12 +25,18 @@ function confirm(question: string): Promise<boolean> {
   );
 }
 
+function describeShareMode(mode: "private" | "link" | "emails"): string {
+  if (mode === "link") return "public";
+  if (mode === "emails") return "specific people";
+  return "private";
+}
+
 export const deployCmd = new Command("deploy")
-  .description("Deploy an HTML, Markdown, or code file and get a shareable link")
+  .description("Deploy an HTML, Markdown, or code file")
   .argument("<file>", "Path to HTML, Markdown, or code file")
   .option("-t, --title <title>", "Document title (defaults to filename)")
   .option("-u, --update", "Update existing document without prompting")
-  .option("--share", "Make the document shareable after deploy")
+  .option("--share", "Publish an anonymous read-only link after deploy")
   .option("--private", "Keep the document private after deploy")
   .action(async (file: string, opts: { title?: string; update?: boolean; share?: boolean; private?: boolean }) => {
     const filePath = resolve(file);
@@ -92,32 +99,34 @@ export const deployCmd = new Command("deploy")
 
         console.log(`Updating ${file}...`);
         const result = await updateDocument(existing.id, filePath, opts.title);
-        let isShared = result.isShared;
+        let shareMode = result.shareMode;
         if ((opts.share || opts.private) && supportsPrivateDocuments) {
           const updated = await updateDocumentSharing(existing.id, Boolean(opts.share));
-          isShared = updated.isShared;
+          shareMode = updated.isShared ? "link" : "private";
         }
         setDocumentMapping(filePath, result.id);
-        console.log(`\nUpdated! ${result.url}`);
+        const outputUrl = shareMode === "link" ? getPublicDocumentUrl(result.id) : result.url;
+        console.log(`\nUpdated! ${outputUrl}`);
         console.log(`  id:    ${result.id}`);
         console.log(`  title: ${result.title}`);
         console.log(`  size:  ${(result.size / 1024).toFixed(1)}KB`);
-        console.log(`  share: ${isShared ? "shareable" : "private"}`);
+        console.log(`  share: ${describeShareMode(shareMode)}`);
       } else {
         console.log(`Deploying ${file}...`);
         const result = await deployDocument(filePath, opts.title);
-        let isShared = result.isShared;
+        let shareMode = result.shareMode;
         if ((opts.share || opts.private) && supportsPrivateDocuments) {
           const updated = await updateDocumentSharing(result.id, Boolean(opts.share));
-          isShared = updated.isShared;
+          shareMode = updated.isShared ? "link" : "private";
         }
         setDocumentMapping(filePath, result.id);
-        console.log(`\nDeployed! ${result.url}`);
+        const outputUrl = shareMode === "link" ? getPublicDocumentUrl(result.id) : result.url;
+        console.log(`\nDeployed! ${outputUrl}`);
         console.log(`  id:    ${result.id}`);
         console.log(`  title: ${result.title}`);
         console.log(`  size:  ${(result.size / 1024).toFixed(1)}KB`);
-        console.log(`  share: ${isShared ? "shareable" : "private"}`);
-        if (!opts.share && !opts.private && !isShared) {
+        console.log(`  share: ${describeShareMode(shareMode)}`);
+        if (!opts.share && !opts.private && shareMode === "private") {
           console.log(`  next:  run 'sharehtml share ${lookupFilename}' to make it shareable`);
         }
       }

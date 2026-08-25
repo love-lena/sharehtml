@@ -771,7 +771,7 @@ function getShareDescription(): string {
   if (AUTH_MODE !== "access") return "anyone with the link can view and comment";
   switch (shareMode) {
     case "link":
-      return "anyone allowed by your Cloudflare Access policy can view and comment";
+      return "anyone with the public link can view without signing in";
     case "emails":
       if (sharedEmails.length === 0) return "add people to share this document";
       return `shared with ${sharedEmails.length} ${sharedEmails.length === 1 ? "person" : "people"}`;
@@ -781,7 +781,9 @@ function getShareDescription(): string {
 }
 
 function renderShareModal() {
-  shareLinkInput.value = location.href;
+  shareLinkInput.value = shareMode === "link"
+    ? `${location.origin}/p/${encodeURIComponent(DOC_ID)}`
+    : `${location.origin}/d/${encodeURIComponent(DOC_ID)}`;
   shareModeSelect.value = shareMode;
   shareModeSelect.disabled = isSavingShareState || !CAN_MANAGE_SHARING;
   shareModeDescription.textContent = getShareDescription();

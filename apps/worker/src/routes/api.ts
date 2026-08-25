@@ -186,6 +186,7 @@ api.post("/documents", async (c) => {
   const resolvedTitle = getDocumentTitle(sourceFilename, title, sourceKind);
 
   const registry = getRegistry(c.env);
+  const initialShareMode: ShareMode = c.env.AUTH_MODE === "access" ? "private" : "link";
 
   const writes: Array<Promise<unknown>> = [
     c.env.DOCUMENTS_BUCKET.put(getRenderedDocumentKey(id, renderedFilename), file.stream(), {
@@ -198,7 +199,7 @@ api.post("/documents", async (c) => {
       filename: sourceFilename,
       size: file.size,
       owner_email: normalizeEmail(ownerEmail),
-      is_shared: c.env.AUTH_MODE === "access" ? 0 : 1,
+      is_shared: shareModeToInt(initialShareMode),
       rendered_filename: renderedFilename,
       source_filename: source && sourceKind ? sourceFilename : null,
       source_kind: sourceKind,
@@ -226,7 +227,8 @@ api.post("/documents", async (c) => {
     title: resolvedTitle,
     filename: sourceFilename,
     size: file.size,
-    isShared: c.env.AUTH_MODE !== "access",
+    isShared: initialShareMode === "link",
+    shareMode: initialShareMode,
   });
 });
 
@@ -522,6 +524,7 @@ api.put("/documents/:id", async (c) => {
     filename: nextSourceFilename || sourceFilename,
     size: file.size,
     isShared: Boolean(meta.is_shared),
+    shareMode: shareModeFromInt(meta.is_shared),
   });
 });
 
