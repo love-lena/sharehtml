@@ -1,6 +1,6 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { resolve } from "node:path";
 import {
@@ -168,6 +168,21 @@ function promptSecret(question: string): Promise<string> {
       resolve(answer.trim());
     });
   });
+}
+
+function readApiTokenFile(): string | null {
+  const path = process.env.SHAREHTML_CF_API_TOKEN_FILE;
+  if (!path) return null;
+
+  const stat = statSync(path);
+  if (!stat.isFile()) fail("SHAREHTML_CF_API_TOKEN_FILE must point to a regular file.");
+  if ((stat.mode & 0o077) !== 0) {
+    fail("The API token file must not be readable or writable by group or other users. Run `chmod 600 <file>`.");
+  }
+
+  const token = readFileSync(path, "utf8").trim();
+  if (!token) fail("The API token file is empty.");
+  return token;
 }
 
 async function confirm(question: string, defaultYes = true): Promise<boolean> {
@@ -1015,7 +1030,7 @@ async function main() {
       openUrl(cfTokenUrl);
     }
     console.log();
-    const cfToken = await promptSecret("Paste your API token:");
+    const cfToken = readApiTokenFile() ?? await promptSecret("Paste your API token:");
     console.log();
 
     s = spinner("Verifying token...", true);
