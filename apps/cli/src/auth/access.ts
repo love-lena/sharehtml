@@ -27,16 +27,8 @@ export async function ensureCloudflaredInstalled(): Promise<void> {
 
 export async function loginWithAccess(workerUrl: string): Promise<void> {
   await ensureCloudflaredInstalled();
-  await new Promise<void>((resolve, reject) => {
-    const child = execFile("cloudflared", ["access", "login", workerUrl], (error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve();
-    });
-    child.stdout?.pipe(process.stdout);
-    child.stderr?.pipe(process.stderr);
+  await execFileAsync("cloudflared", ["access", "login", workerUrl], {
+    encoding: "utf-8",
   });
 }
 
