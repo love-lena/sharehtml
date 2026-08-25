@@ -10,7 +10,7 @@
     "test:e2e": "pnpm --filter @sharehtml/worker run e2e",
     "typecheck": "pnpm -r run typecheck",
     "setup": "pnpm --filter @sharehtml/worker run setup",
-    "sharehtml": "pnpm --filter ./apps/cli exec sharehtml"
+    "sharehtml": "bun apps/cli/src/index.ts"
   },
   "devDependencies": {
     "typescript": "^5.7.0"
