@@ -136,8 +136,21 @@ describe("Anonymous public viewer", () => {
 
     const html = await response.text();
     expect(html).toContain("public · read only");
+    expect(html).toContain('id="manage-button" type="button" hidden');
+    expect(html).toContain("/api/documents/public-link/share");
     expect(html).not.toContain("owner-secret@example.com");
     expect(html).not.toContain("comments");
+  });
+
+  it("does not add an unauthenticated management route under the public path", async () => {
+    await createDoc("public-no-management", "other@example.com", 1);
+
+    const response = await exports.default.fetch("https://example.com/p/public-no-management/share", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "private" }),
+    });
+    expect(response.status).toBe(404);
   });
 
   it("serves rendered bytes only while the document remains link-shared", async () => {

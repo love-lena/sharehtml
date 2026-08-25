@@ -44,6 +44,8 @@ publicViewer.get("/p/:id", async (c) => {
     PublicViewer({
       title: doc.title,
       contentPath: `/p/${encodeURIComponent(id)}/content`,
+      managePath: `/api/documents/${encodeURIComponent(id)}/share`,
+      privatePath: `/d/${encodeURIComponent(id)}`,
     }),
     200,
     publicHeaders,

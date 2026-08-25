@@ -132,6 +132,7 @@ Documents are private by default when Cloudflare Access is enabled:
 
 - `/d/:id` is the authenticated viewer. Owners and explicitly listed email addresses can collaborate here.
 - `/p/:id` is an anonymous, read-only viewer and only serves documents in link-sharing mode.
+- Owners with an active Cloudflare Access session can manage sharing directly from `/p/:id`; the control stays hidden for anonymous and non-owner viewers.
 - `sharehtml share <document> --link` enables the public route and prints its `/p/...` URL.
 - `sharehtml unshare <document>` disables both the public shell and content endpoint immediately. Public responses use `Cache-Control: no-store` and are marked `noindex`.
 
