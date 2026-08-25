@@ -3,6 +3,7 @@ import type { AppBindings, DocumentRow } from "../types.js";
 import { PublicViewer } from "../frontend/public-viewer.js";
 import { createAttachmentHeaders } from "../utils/download.js";
 import { getRenderedObject } from "../utils/document-storage.js";
+import { injectArtifactContentSecurityPolicy } from "../utils/artifact-security.js";
 import { getRegistry } from "../utils/registry.js";
 
 const PUBLIC_SHELL_CSP = [
@@ -58,7 +59,8 @@ publicViewer.get("/p/:id/content", async (c) => {
   if (!object) return c.text("Content not found", 404, publicHeaders);
 
   const renderedFilename = doc.rendered_filename || doc.filename;
-  return new Response(object.body, {
+  const securedHtml = injectArtifactContentSecurityPolicy(await object.text());
+  return new Response(securedHtml, {
     headers: createAttachmentHeaders(renderedFilename, {
       "X-ShareHTML-Download-Content-Type": "text/html; charset=utf-8",
       "X-Robots-Tag": "noindex, nofollow",

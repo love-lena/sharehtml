@@ -146,7 +146,9 @@ describe("Anonymous public viewer", () => {
     const first = await exports.default.fetch("https://example.com/p/public-content/content");
     expect(first.status).toBe(200);
     expect(first.headers.get("Cache-Control")).toBe("no-store");
-    expect(new TextDecoder().decode(await first.arrayBuffer())).toBe("<h1>test</h1>");
+    const securedHtml = new TextDecoder().decode(await first.arrayBuffer());
+    expect(securedHtml).toContain("Content-Security-Policy");
+    expect(securedHtml).toContain("<h1>test</h1>");
 
     await reg.setDocumentShareMode("public-content", 0);
 
