@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   normalizeCustomHostname,
   readSetupConfig,
@@ -38,6 +39,15 @@ describe("custom hostname validation", () => {
 });
 
 describe("Wrangler setup configuration", () => {
+  test("reads the repository's JSONC config with trailing commas", () => {
+    const repositoryConfig = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+    expect(readSetupConfig(repositoryConfig)).toEqual({
+      name: "sharehtml",
+      bucketName: "sharehtml-documents",
+      customHostname: "artifacts.lena.dog",
+    });
+  });
+
   test("reads the Worker, bucket, and current target", () => {
     expect(readSetupConfig(config)).toEqual({
       name: "sharehtml",

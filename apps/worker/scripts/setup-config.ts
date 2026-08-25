@@ -33,7 +33,7 @@ export function normalizeCustomHostname(value: string): string | null {
 
 export function readSetupConfig(source: string): SetupConfig {
   const errors: ParseError[] = [];
-  const config: unknown = parse(source, errors);
+  const config: unknown = parse(source, errors, { allowTrailingComma: true });
   if (errors.length > 0 || !isRecord(config)) {
     throw new Error("Could not parse wrangler.jsonc");
   }
