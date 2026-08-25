@@ -1012,10 +1012,16 @@ async function main() {
   const accountId = wranglerAccount.id;
   console.log();
   const useAccess = await confirm("Require authentication with Cloudflare Access?");
-  let accessAud = "";
-  let accessTeam = "";
+  let accessAud = config.accessAud;
+  let accessTeam = config.accessTeam;
+  const canReuseAccess = useAccess && config.authMode === "access" && accessAud && accessTeam;
+  const reuseAccess = canReuseAccess
+    ? await confirm("Keep the existing Access configuration and policies?", true)
+    : false;
 
-  if (useAccess) {
+  if (reuseAccess) {
+    console.log(`  ${dim("access")}    reusing existing application configuration`);
+  } else if (useAccess) {
     console.log();
     const cfTokenUrl = "https://dash.cloudflare.com/profile/api-tokens";
     console.log(`  Create a Cloudflare API token with these permissions:`);

@@ -8,6 +8,9 @@ export interface SetupConfig {
   name: string;
   bucketName: string;
   customHostname: string | null;
+  authMode: string;
+  accessAud: string;
+  accessTeam: string;
 }
 
 const formattingOptions = { insertSpaces: true, tabSize: 2, eol: "\n" };
@@ -59,11 +62,15 @@ export function readSetupConfig(source: string): SetupConfig {
     entry.custom_domain === true &&
     typeof entry.pattern === "string"
   ) as Record<string, unknown> | undefined;
+  const vars = isRecord(production.vars) ? production.vars : {};
 
   return {
     name,
     bucketName: bucket.bucket_name,
     customHostname: typeof customRoute?.pattern === "string" ? customRoute.pattern : null,
+    authMode: typeof vars.AUTH_MODE === "string" ? vars.AUTH_MODE : "none",
+    accessAud: typeof vars.ACCESS_AUD === "string" ? vars.ACCESS_AUD : "",
+    accessTeam: typeof vars.ACCESS_TEAM === "string" ? vars.ACCESS_TEAM : "",
   };
 }
 
