@@ -50,7 +50,13 @@
   "env": {
     "production": {
       "name": "sharehtml",
-      "workers_dev": true,
+      "workers_dev": false,
+      "routes": [
+        {
+          "pattern": "artifacts.lena.dog",
+          "custom_domain": true,
+        },
+      ],
       "preview_urls": false,
       "upload_source_maps": true,
       "observability": {
