@@ -93,3 +93,10 @@ export function updateProductionConfiguration(
 
   return updated;
 }
+
+export function removeProductionSecretRequirements(source: string): string {
+  return applyEdits(
+    source,
+    modify(source, ["env", "production", "secrets"], undefined, { formattingOptions }),
+  );
+}

@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import {
   normalizeCustomHostname,
   readSetupConfig,
+  removeProductionSecretRequirements,
   updateProductionConfiguration,
   type DeploymentTarget,
 } from "./setup-config";
@@ -443,7 +444,8 @@ async function ensureR2Bucket(name: string): Promise<"created" | "existing"> {
 function shouldTreatSecretListFailureAsMissingWorker(message: string): boolean {
   return message.includes("script not found") ||
     message.includes("workers.api.error.script_not_found") ||
-    message.includes("There doesn't seem to be a Worker");
+    message.includes("There doesn't seem to be a Worker") ||
+    (message.includes('Worker "') && message.includes("not found"));
 }
 
 async function hasProductionSecret(name: string): Promise<boolean> {
@@ -479,6 +481,17 @@ async function ensureProductionSecret(name: string): Promise<"created" | "existi
     { input: `${value}\n` },
   );
   return "created";
+}
+
+async function productionWorkerExists(): Promise<boolean> {
+  try {
+    await run("npx", ["wrangler", "deployments", "list", "--env", "production"]);
+    return true;
+  } catch (error: unknown) {
+    const message = formatCommandError(error);
+    if (shouldTreatSecretListFailureAsMissingWorker(message)) return false;
+    throw error;
+  }
 }
 
 function multiSelect(title: string, options: SelectOption[]): Promise<SelectOption[]> {
@@ -1144,24 +1157,15 @@ async function main() {
     fail(`Failed to configure R2 bucket: ${message}`);
   }
 
-  if (useAccess) {
-    s = spinner("Ensuring production browser capability secret...", true);
-    try {
-      const status = await ensureProductionSecret("VIEWER_CAPABILITY_SECRET");
-      s.stop(
-        status === "created"
-          ? "Browser capability secret created"
-          : "Browser capability secret already configured",
-      );
-    } catch (error: unknown) {
-      s.stop();
-      fail(`Failed to configure VIEWER_CAPABILITY_SECRET: ${formatCommandError(error)}`);
-    }
-  }
-
   s = spinner("Deploying worker (production)...", true);
-  let workerUrl: string;
+  let workerUrl = "";
+  let savedConfig: string | null = null;
+  let deployFailure: string | null = null;
   try {
+    if (useAccess && !(await productionWorkerExists())) {
+      savedConfig = readFileSync(configPath, "utf-8");
+      writeFileSync(configPath, removeProductionSecretRequirements(savedConfig), "utf-8");
+    }
     await run("npx", ["vite", "build"], { env: { CLOUDFLARE_ENV: "production" } });
     const output = await run("npx", ["wrangler", "deploy", "--env", "production"], { input: "y\n" });
     if (deploymentTarget.kind === "custom-domain") {
@@ -1176,9 +1180,28 @@ async function main() {
     s.stop();
     const message = formatCommandError(error);
     if (isMissingR2Error(message)) {
-      fail(getR2SetupMessage());
+      deployFailure = getR2SetupMessage();
+    } else {
+      deployFailure = `Deploy failed: ${message}`;
     }
-    fail(`Deploy failed: ${message}`);
+  } finally {
+    if (savedConfig !== null) writeFileSync(configPath, savedConfig, "utf-8");
+  }
+  if (deployFailure) fail(deployFailure);
+
+  if (useAccess) {
+    s = spinner("Ensuring production browser capability secret...", true);
+    try {
+      const status = await ensureProductionSecret("VIEWER_CAPABILITY_SECRET");
+      s.stop(
+        status === "created"
+          ? "Browser capability secret created"
+          : "Browser capability secret already configured",
+      );
+    } catch (error: unknown) {
+      s.stop();
+      fail(`Failed to configure VIEWER_CAPABILITY_SECRET: ${formatCommandError(error)}`);
+    }
   }
 
   if (!useAccess) {

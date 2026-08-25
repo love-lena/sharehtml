@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import {
   normalizeCustomHostname,
   readSetupConfig,
+  removeProductionSecretRequirements,
   updateProductionConfiguration,
 } from "./setup-config.js";
 
@@ -54,6 +55,17 @@ describe("Wrangler setup configuration", () => {
       bucketName: "sharehtml-documents",
       customHostname: null,
     });
+  });
+
+  test("can bootstrap a Worker without weakening the saved config", () => {
+    const withRequiredSecret = config.replace(
+      '"r2_buckets": [',
+      '"secrets": { "required": ["VIEWER_CAPABILITY_SECRET"] },\n      "r2_buckets": [',
+    );
+    const bootstrapConfig = removeProductionSecretRequirements(withRequiredSecret);
+
+    expect(bootstrapConfig).not.toContain("VIEWER_CAPABILITY_SECRET");
+    expect(withRequiredSecret).toContain("VIEWER_CAPABILITY_SECRET");
   });
 
   test("writes a custom domain and disables workers.dev", () => {
