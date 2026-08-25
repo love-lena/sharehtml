@@ -38,6 +38,7 @@ export function PublicViewer({ title, contentPath, managePath, privatePath }: Pu
           form { display: grid; gap: 16px; padding: 20px; }
           h2 { margin: 0; font-size: 17px; }
           label { display: grid; gap: 7px; color: #c8ccda; font-size: 12px; }
+          #email-section[hidden] { display: none; }
           select, textarea { width: 100%; border: 1px solid #363b49; border-radius: 8px; padding: 9px 10px; color: #f5f7ff; background: #11131a; }
           textarea { min-height: 88px; resize: vertical; }
           .hint, #manage-message { margin: 0; color: #979daf; font-size: 11px; line-height: 1.45; }
