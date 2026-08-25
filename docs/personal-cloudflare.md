@@ -7,7 +7,7 @@ This guide publishes a private ShareHTML instance at `artifacts.lena.dog`. Cloud
 1. In the [Cloudflare dashboard](https://dash.cloudflare.com/), confirm `lena.dog` is an **Active** zone in the account you intend to use.
 2. In **DNS > Records**, make sure there is no existing record named `artifacts`. Wrangler will create the DNS record and certificate when it deploys the Custom Domain.
 3. Open **Storage & databases > R2 object storage** and enable R2. Cloudflare may require checkout even when your usage stays inside the free allowance. The setup script creates the `sharehtml-documents` bucket.
-4. Open **Zero Trust**, choose **Get started**, select a team name, and enable an identity method. One-time PIN is the smallest setup for a personal instance; an existing Google or GitHub identity provider also works.
+4. Open **Zero Trust**, choose **Get started**, and select a team name. New organizations only include Cloudflare login by default. To add email codes, go to **Integrations > Identity providers**, select **Add new identity provider**, and choose **One-time PIN**. An existing Google or GitHub identity provider also works.
 5. Install the local prerequisites from the main README, then authenticate Wrangler:
 
    ```bash
