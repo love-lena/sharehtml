@@ -18,7 +18,7 @@ const program = new Command();
 program
   .name("sharehtml")
   .description("Deploy HTML documents with collaborative commenting")
-  .version("0.0.1");
+  .version("0.0.5");
 
 program.addCommand(deployCmd);
 program.addCommand(listCmd);
