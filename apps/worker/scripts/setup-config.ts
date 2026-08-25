@@ -100,3 +100,12 @@ export function removeProductionSecretRequirements(source: string): string {
     modify(source, ["env", "production", "secrets"], undefined, { formattingOptions }),
   );
 }
+
+export function isMissingWorkerError(message: string): boolean {
+  return message.includes("script not found") ||
+    message.includes("workers.api.error.script_not_found") ||
+    message.includes("There doesn't seem to be a Worker") ||
+    message.includes("This Worker does not exist") ||
+    message.includes("[code: 10007]") ||
+    (message.includes('Worker "') && message.includes("not found"));
+}

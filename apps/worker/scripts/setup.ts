@@ -4,6 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { resolve } from "node:path";
 import {
+  isMissingWorkerError,
   normalizeCustomHostname,
   readSetupConfig,
   removeProductionSecretRequirements,
@@ -441,13 +442,6 @@ async function ensureR2Bucket(name: string): Promise<"created" | "existing"> {
   }
 }
 
-function shouldTreatSecretListFailureAsMissingWorker(message: string): boolean {
-  return message.includes("script not found") ||
-    message.includes("workers.api.error.script_not_found") ||
-    message.includes("There doesn't seem to be a Worker") ||
-    (message.includes('Worker "') && message.includes("not found"));
-}
-
 async function hasProductionSecret(name: string): Promise<boolean> {
   try {
     const output = await run("npx", [
@@ -462,7 +456,7 @@ async function hasProductionSecret(name: string): Promise<boolean> {
     return parseSecretList(output).includes(name);
   } catch (error: unknown) {
     const message = formatCommandError(error);
-    if (shouldTreatSecretListFailureAsMissingWorker(message)) {
+    if (isMissingWorkerError(message)) {
       return false;
     }
     throw new Error(message);
@@ -489,7 +483,7 @@ async function productionWorkerExists(): Promise<boolean> {
     return true;
   } catch (error: unknown) {
     const message = formatCommandError(error);
-    if (shouldTreatSecretListFailureAsMissingWorker(message)) return false;
+    if (isMissingWorkerError(message)) return false;
     throw error;
   }
 }

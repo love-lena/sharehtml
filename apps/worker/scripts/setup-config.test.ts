@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
+  isMissingWorkerError,
   normalizeCustomHostname,
   readSetupConfig,
   removeProductionSecretRequirements,
@@ -40,6 +41,10 @@ describe("custom hostname validation", () => {
 });
 
 describe("Wrangler setup configuration", () => {
+  test("recognizes the live missing-Worker API response", () => {
+    expect(isMissingWorkerError("This Worker does not exist on your account. [code: 10007]")).toBe(true);
+  });
+
   test("reads the repository's JSONC config with trailing commas", () => {
     const repositoryConfig = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
     expect(readSetupConfig(repositoryConfig)).toEqual({
