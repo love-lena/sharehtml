@@ -19,10 +19,12 @@ describe("repository shell client", () => {
       executable(join(fakeBin, "open"), "#!/bin/sh\nexit 0\n");
       executable(join(fakeBin, "sleep"), "#!/bin/sh\nexit 0\n");
       executable(join(fakeBin, "curl"), `#!/bin/sh
-case "$*" in
-  *auth/cli/device/token*) echo '{"access_token":"test-cli-token","token_type":"Bearer","expires_in":86400,"email":"person@example.com"}' ;;
-  *auth/cli/device*) echo '{"device_code":"device-code","user_code":"ABCDEFGH","verification_uri_complete":"https://example.com/auth/cli/device/verify?user_code=ABCDEFGH","expires_in":600,"interval":3}' ;;
-  *api/documents*)
+request_url=""
+for argument in "$@"; do case "$argument" in https://*) request_url="$argument" ;; esac; done
+case "$request_url" in
+  https://example.com/auth/cli/device/token) echo '{"access_token":"test-cli-token","token_type":"Bearer","expires_in":86400,"email":"person@example.com"}' ;;
+  https://example.com/auth/cli/device) echo '{"device_code":"device-code","user_code":"ABCDEFGH","verification_uri_complete":"https://example.com/auth/cli/device/verify?user_code=ABCDEFGH","expires_in":600,"interval":3}' ;;
+  https://example.com/api/documents)
     case "$*" in *"Authorization: Bearer test-cli-token"*) echo '{"documents":[]}' ;; *) exit 22 ;; esac ;;
   *) exit 22 ;;
 esac
