@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { AppBindings } from "../types.js";
 import { LoginView, VerifyEmailView } from "../frontend/auth.js";
-import { createBuiltinToken, getAuthEmails, getBuiltinUser, SESSION_COOKIE } from "../utils/auth.js";
+import { createBuiltinToken, getBuiltinUser, SESSION_COOKIE } from "../utils/auth.js";
 import { normalizeEmail } from "../utils/email.js";
 import { sha256 } from "../utils/crypto.js";
 import { getRegistry } from "../utils/registry.js";
@@ -75,13 +75,6 @@ auth.get("/methods", (c) => c.json({
   github: c.env.AUTH_MODE === "builtin" && githubEnabled(c.env),
   email: c.env.AUTH_MODE === "builtin" && emailEnabled(c.env),
 }));
-
-auth.get("/me", async (c) => {
-  if (c.env.AUTH_MODE !== "builtin") return c.json({ error: "Built-in authentication is disabled" }, 404);
-  const user = await getBuiltinUser(c);
-  if (!user) return c.json({ error: "Authentication required" }, 401);
-  return c.json({ id: user.id, email: user.email, emails: getAuthEmails(user) });
-});
 
 auth.get("/login", async (c) => {
   if (c.env.AUTH_MODE !== "builtin") return c.redirect("/");
