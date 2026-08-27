@@ -45,6 +45,8 @@ If your deployment requires authentication, log in. Built-in auth opens the brow
 sharehtml login
 ```
 
+The browser returns a one-time authorization code through a PKCE-protected loopback callback. The resulting ShareHTML session lasts 24 hours and is saved in macOS Keychain or Linux Secret Service when available. Run `sharehtml logout` to remove it locally.
+
 Then deploy a document:
 
 ```bash
@@ -76,6 +78,7 @@ If a document with the same filename exists, the CLI will prompt to update it. U
 | `sharehtml unshare <document>` | Make a document private |
 | `sharehtml skill install` | Install the agent skill for Claude Code, Codex, or OpenCode |
 | `sharehtml login` | Log in through ShareHTML or legacy Cloudflare Access |
+| `sharehtml logout` | Remove the saved CLI session for the configured deployment |
 | `sharehtml config set-url <url>` | Set the sharehtml URL |
 | `sharehtml config show` | Show current configuration |
 

@@ -10,6 +10,7 @@ import { commentsCmd } from "./commands/comments.js";
 import { skillCmd } from "./commands/skill.js";
 import { configCmd } from "./commands/config.js";
 import { loginCmd } from "./commands/login.js";
+import { logoutCmd } from "./commands/logout.js";
 import { shareCmd } from "./commands/share.js";
 import { unshareCmd } from "./commands/unshare.js";
 
@@ -18,7 +19,7 @@ const program = new Command();
 program
   .name("sharehtml")
   .description("Deploy HTML documents with collaborative commenting")
-  .version("0.0.5");
+  .version("0.0.6");
 
 program.addCommand(deployCmd);
 program.addCommand(listCmd);
@@ -32,5 +33,6 @@ program.addCommand(unshareCmd);
 program.addCommand(skillCmd);
 program.addCommand(configCmd);
 program.addCommand(loginCmd);
+program.addCommand(logoutCmd);
 
 program.parse();

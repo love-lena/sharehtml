@@ -65,7 +65,7 @@ sharehtml login
 sharehtml deploy example/coffee-report.html
 ```
 
-`sharehtml login` opens the same login page and returns a short-lived exchange code to a temporary localhost listener, so no browser cookies or `cloudflared` installation are needed. Verify all three paths:
+`sharehtml login` opens the same login page and returns a one-time code to a temporary `127.0.0.1` listener using state and PKCE. The exchanged ShareHTML session lasts 24 hours; GitHub credentials are never returned to the CLI, and no `cloudflared` installation is needed. Verify all three paths:
 
 1. Open `https://artifacts.lena.dog` in a private browser window and confirm the GitHub login page appears.
 2. Complete the login and confirm the ShareHTML home page loads.

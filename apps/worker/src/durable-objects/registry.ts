@@ -80,9 +80,13 @@ export class RegistryDO extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS cli_login_codes (
         code_hash TEXT PRIMARY KEY,
         email TEXT NOT NULL,
-        expires_at INTEGER NOT NULL
+        expires_at INTEGER NOT NULL,
+        redirect_uri TEXT,
+        code_challenge TEXT,
+        user_json TEXT
       )
     `);
+    this.ensureCliLoginCodeColumns();
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS login_rate_limits (
         rate_key TEXT PRIMARY KEY,
@@ -120,6 +124,14 @@ export class RegistryDO extends DurableObject<Env> {
     if (!columnNames.has("source_language")) {
       this.sql.exec("ALTER TABLE documents ADD COLUMN source_language TEXT");
     }
+  }
+
+  private ensureCliLoginCodeColumns() {
+    const columns = this.sql.exec<{ name: string }>("PRAGMA table_info(cli_login_codes)").toArray();
+    const names = new Set(columns.map((column) => column.name));
+    if (!names.has("redirect_uri")) this.sql.exec("ALTER TABLE cli_login_codes ADD COLUMN redirect_uri TEXT");
+    if (!names.has("code_challenge")) this.sql.exec("ALTER TABLE cli_login_codes ADD COLUMN code_challenge TEXT");
+    if (!names.has("user_json")) this.sql.exec("ALTER TABLE cli_login_codes ADD COLUMN user_json TEXT");
   }
 
   private pickColor(): string {
@@ -247,26 +259,66 @@ export class RegistryDO extends DurableObject<Env> {
     return true;
   }
 
-  async createCliLoginCode(codeHash: string, email: string, expiresAt: number): Promise<void> {
+  async createCliLoginCode(
+    codeHash: string,
+    user: { id: string; email: string; emails?: string[] },
+    redirectUri: string,
+    codeChallenge: string,
+    expiresAt: number,
+  ): Promise<void> {
     this.sql.exec("DELETE FROM cli_login_codes WHERE expires_at < ?", Date.now());
     this.sql.exec(
-      "INSERT INTO cli_login_codes (code_hash, email, expires_at) VALUES (?, ?, ?)",
+      `INSERT INTO cli_login_codes
+       (code_hash, email, expires_at, redirect_uri, code_challenge, user_json)
+       VALUES (?, ?, ?, ?, ?, ?)`,
       codeHash,
-      normalizeEmail(email),
+      normalizeEmail(user.email),
       expiresAt,
+      redirectUri,
+      codeChallenge,
+      JSON.stringify({
+        id: user.id,
+        email: normalizeEmail(user.email),
+        emails: [...new Set((user.emails || []).map(normalizeEmail).filter(Boolean))],
+      }),
     );
   }
 
-  async consumeCliLoginCode(codeHash: string, now: number): Promise<string | null> {
+  async consumeCliLoginCode(codeHash: string, now: number): Promise<{
+    user: { id: string; email: string; emails: string[] };
+    redirectUri: string;
+    codeChallenge: string;
+  } | null> {
     const row = this.sql
-      .exec<{ email: string; expires_at: number }>(
-        "SELECT email, expires_at FROM cli_login_codes WHERE code_hash = ?",
+      .exec<{
+        email: string;
+        expires_at: number;
+        redirect_uri: string | null;
+        code_challenge: string | null;
+        user_json: string | null;
+      }>(
+        `SELECT email, expires_at, redirect_uri, code_challenge, user_json
+         FROM cli_login_codes WHERE code_hash = ?`,
         codeHash,
       )
       .toArray()[0];
     this.sql.exec("DELETE FROM cli_login_codes WHERE code_hash = ?", codeHash);
-    if (!row || row.expires_at < now) return null;
-    return row.email;
+    if (!row || row.expires_at < now || !row.redirect_uri || !row.code_challenge || !row.user_json) return null;
+    try {
+      const user = JSON.parse(row.user_json) as { id?: unknown; email?: unknown; emails?: unknown };
+      if (typeof user.id !== "string" || typeof user.email !== "string" || !Array.isArray(user.emails)) return null;
+      return {
+        user: {
+          id: user.id,
+          email: normalizeEmail(user.email),
+          emails: user.emails.filter((email): email is string => typeof email === "string").map(normalizeEmail).filter(Boolean),
+        },
+        redirectUri: row.redirect_uri,
+        codeChallenge: row.code_challenge,
+      };
+    } catch {
+      return null;
+    }
   }
 
   async createDocument(doc: {

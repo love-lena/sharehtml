@@ -31,7 +31,7 @@ interface ViewerCapabilityRouteOptions extends CapabilityRouteOptions {
 }
 
 function isExplicitHeaderAuthSource(source: AuthSource): boolean {
-  return source === "cf-access-token" || source === "access-jwt-header";
+  return source === "cf-access-token" || source === "access-jwt-header" || source === "bearer";
 }
 
 function isCookieAuthSource(source: AuthSource): boolean {

@@ -6,6 +6,8 @@ import type { AppBindings } from "../types.js";
 import { normalizeEmail } from "./email.js";
 
 export const SESSION_COOKIE = "sharehtml_session";
+export const CLI_TOKEN_AUDIENCE = "sharehtml-cli";
+export const CLI_TOKEN_LIFETIME_SECONDS = 24 * 60 * 60;
 
 export interface AuthUser {
   id: string;
@@ -76,6 +78,24 @@ export async function createBuiltinToken(
     .sign(getAuthSecret(env));
 }
 
+export async function createCliToken(
+  env: Env,
+  user: Pick<AuthUser, "id" | "email" | "emails">,
+): Promise<string> {
+  return new SignJWT({
+    email: normalizeEmail(user.email),
+    emails: getAuthEmails(user),
+    token_use: "cli",
+  })
+    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+    .setSubject(user.id)
+    .setIssuer("sharehtml")
+    .setAudience(CLI_TOKEN_AUDIENCE)
+    .setIssuedAt()
+    .setExpirationTime(`${CLI_TOKEN_LIFETIME_SECONDS}s`)
+    .sign(getAuthSecret(env));
+}
+
 export async function verifyBuiltinToken(env: Env, token: string): Promise<AuthUser | null> {
   try {
     const { payload } = await jwtVerify(token, getAuthSecret(env), {
@@ -95,11 +115,32 @@ export async function verifyBuiltinToken(env: Env, token: string): Promise<AuthU
   }
 }
 
+export async function verifyCliToken(env: Env, token: string): Promise<AuthUser | null> {
+  try {
+    const { payload } = await jwtVerify(token, getAuthSecret(env), {
+      algorithms: ["HS256"],
+      issuer: "sharehtml",
+      audience: CLI_TOKEN_AUDIENCE,
+    });
+    if (payload.token_use !== "cli" || !payload.sub || typeof payload.email !== "string") return null;
+    const emails = Array.isArray(payload.emails)
+      ? payload.emails.filter((email): email is string => typeof email === "string")
+      : [];
+    return {
+      id: payload.sub,
+      email: normalizeEmail(payload.email),
+      emails: getAuthEmails({ email: payload.email, emails }),
+      source: "bearer",
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function getBuiltinUser(c: Context<AppBindings>): Promise<AuthUser | null> {
   const authorization = c.req.header("Authorization");
   if (authorization?.startsWith("Bearer ")) {
-    const user = await verifyBuiltinToken(c.env, authorization.slice(7));
-    return user ? { ...user, source: "bearer" } : null;
+    return verifyCliToken(c.env, authorization.slice(7));
   }
   const cookie = getCookie(c, SESSION_COOKIE);
   if (!cookie) return null;

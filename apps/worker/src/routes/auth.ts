@@ -2,7 +2,13 @@ import { Hono, type Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { AppBindings } from "../types.js";
 import { LoginView, VerifyEmailView } from "../frontend/auth.js";
-import { createBuiltinToken, getBuiltinUser, SESSION_COOKIE } from "../utils/auth.js";
+import {
+  CLI_TOKEN_LIFETIME_SECONDS,
+  createBuiltinToken,
+  createCliToken,
+  getBuiltinUser,
+  SESSION_COOKIE,
+} from "../utils/auth.js";
 import { normalizeEmail } from "../utils/email.js";
 import { sha256 } from "../utils/crypto.js";
 import { getRegistry } from "../utils/registry.js";
@@ -10,7 +16,11 @@ import { getRegistry } from "../utils/registry.js";
 export const auth = new Hono<AppBindings>();
 const OAUTH_STATE_COOKIE = "sharehtml_oauth_state";
 const OAUTH_NEXT_COOKIE = "sharehtml_oauth_next";
+const OAUTH_PKCE_COOKIE = "sharehtml_oauth_pkce";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CLI_STATE_RE = /^[A-Za-z0-9_-]{32,128}$/;
+const PKCE_CHALLENGE_RE = /^[A-Za-z0-9_-]{43}$/;
+const PKCE_VERIFIER_RE = /^[A-Za-z0-9._~-]{43,128}$/;
 
 function safeNext(value: string | undefined | null): string {
   return value?.startsWith("/") && !value.startsWith("//") ? value : "/";
@@ -19,6 +29,17 @@ function safeNext(value: string | undefined | null): string {
 function randomToken(bytes = 24): string {
   const data = crypto.getRandomValues(new Uint8Array(bytes));
   return btoa(String.fromCharCode(...data)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64Url(data: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(data)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+async function pkceChallenge(verifier: string): Promise<string> {
+  return base64Url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
 }
 
 function secure(c: { req: { url: string } }): boolean {
@@ -63,7 +84,8 @@ function validCliRedirect(value: string): URL | null {
   try {
     const url = new URL(value);
     if (url.protocol !== "http:") return null;
-    if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") return null;
+    if (url.hostname !== "127.0.0.1" || !url.port) return null;
+    if (url.pathname !== "/callback" || url.search || url.hash || url.username || url.password) return null;
     return url;
   } catch {
     return null;
@@ -82,15 +104,25 @@ auth.get("/login", async (c) => {
   return loginPage(c);
 });
 
-auth.get("/github", (c) => {
+auth.get("/github", async (c) => {
   if (c.env.AUTH_MODE !== "builtin" || !githubEnabled(c.env)) return loginPage(c, { error: "GitHub login is not configured." });
   const state = randomToken();
+  const codeVerifier = randomToken(32);
+  const codeChallenge = await pkceChallenge(codeVerifier);
   const next = safeNext(c.req.query("next"));
   const cookieOptions = { httpOnly: true, secure: secure(c), sameSite: "Lax" as const, path: "/auth", maxAge: 600 };
   setCookie(c, OAUTH_STATE_COOKIE, state, cookieOptions);
   setCookie(c, OAUTH_NEXT_COOKIE, next, cookieOptions);
+  setCookie(c, OAUTH_PKCE_COOKIE, codeVerifier, cookieOptions);
   const callback = `${new URL(c.req.url).origin}/auth/github/callback`;
-  const params = new URLSearchParams({ client_id: c.env.GITHUB_CLIENT_ID!, redirect_uri: callback, scope: "read:user user:email", state });
+  const params = new URLSearchParams({
+    client_id: c.env.GITHUB_CLIENT_ID!,
+    redirect_uri: callback,
+    scope: "read:user user:email",
+    state,
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
+  });
   return c.redirect(`https://github.com/login/oauth/authorize?${params}`);
 });
 
@@ -98,17 +130,25 @@ auth.get("/github/callback", async (c) => {
   if (c.env.AUTH_MODE !== "builtin") return c.redirect("/");
   const state = c.req.query("state");
   const expectedState = getCookie(c, OAUTH_STATE_COOKIE);
+  const codeVerifier = getCookie(c, OAUTH_PKCE_COOKIE);
   const next = safeNext(getCookie(c, OAUTH_NEXT_COOKIE));
   deleteCookie(c, OAUTH_STATE_COOKIE, { path: "/auth" });
   deleteCookie(c, OAUTH_NEXT_COOKIE, { path: "/auth" });
-  if (!state || !expectedState || state !== expectedState || !githubEnabled(c.env)) {
+  deleteCookie(c, OAUTH_PKCE_COOKIE, { path: "/auth" });
+  if (!state || !expectedState || state !== expectedState || !codeVerifier || !githubEnabled(c.env)) {
     return c.html(LoginView({ next, githubEnabled: githubEnabled(c.env), emailEnabled: emailEnabled(c.env), error: "GitHub login could not be verified. Please try again." }), 400);
   }
 
   const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: c.env.GITHUB_CLIENT_ID!, client_secret: c.env.GITHUB_CLIENT_SECRET!, code: c.req.query("code") || "" }),
+    body: new URLSearchParams({
+      client_id: c.env.GITHUB_CLIENT_ID!,
+      client_secret: c.env.GITHUB_CLIENT_SECRET!,
+      code: c.req.query("code") || "",
+      code_verifier: codeVerifier,
+      redirect_uri: callback,
+    }),
   });
   const tokenData = await tokenResponse.json<{ access_token?: string }>();
   if (!tokenData.access_token) return loginPage(c, { error: "GitHub did not complete the login." });
@@ -190,8 +230,21 @@ auth.get("/cli", async (c) => {
   if (c.env.AUTH_MODE !== "builtin") return c.text("Built-in authentication is disabled", 404);
   const redirect = validCliRedirect(c.req.query("redirect_uri") || "");
   if (!redirect) return c.text("Invalid CLI callback URL", 400);
-  const next = `/auth/cli/complete?redirect_uri=${encodeURIComponent(redirect.toString())}`;
-  if (!(await getBuiltinUser(c))) return c.redirect(`/auth/login?next=${encodeURIComponent(next)}`);
+  const state = c.req.query("state") || "";
+  const codeChallenge = c.req.query("code_challenge") || "";
+  if (!CLI_STATE_RE.test(state)) return c.text("Invalid CLI state", 400);
+  if (c.req.query("code_challenge_method") !== "S256" || !PKCE_CHALLENGE_RE.test(codeChallenge)) {
+    return c.text("Invalid CLI PKCE challenge", 400);
+  }
+  const nextParams = new URLSearchParams({
+    redirect_uri: redirect.toString(),
+    state,
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
+  });
+  const next = `/auth/cli/complete?${nextParams}`;
+  const user = await getBuiltinUser(c);
+  if (!user || user.source !== "cookie") return c.redirect(`/auth/login?next=${encodeURIComponent(next)}`);
   return c.redirect(next);
 });
 
@@ -200,19 +253,56 @@ auth.get("/cli/complete", async (c) => {
   const user = await getBuiltinUser(c);
   const redirect = validCliRedirect(c.req.query("redirect_uri") || "");
   if (!redirect) return c.text("Invalid CLI callback URL", 400);
-  if (!user) return c.redirect(`/auth/login?next=${encodeURIComponent(`${c.req.path}?redirect_uri=${encodeURIComponent(redirect.toString())}`)}`);
+  const state = c.req.query("state") || "";
+  const codeChallenge = c.req.query("code_challenge") || "";
+  if (!CLI_STATE_RE.test(state)) return c.text("Invalid CLI state", 400);
+  if (c.req.query("code_challenge_method") !== "S256" || !PKCE_CHALLENGE_RE.test(codeChallenge)) {
+    return c.text("Invalid CLI PKCE challenge", 400);
+  }
+  if (!user || user.source !== "cookie") {
+    const current = `${new URL(c.req.url).pathname}${new URL(c.req.url).search}`;
+    return c.redirect(`/auth/login?next=${encodeURIComponent(current)}`);
+  }
   const code = randomToken(32);
-  await getRegistry(c.env).createCliLoginCode(await authHash(c.env, "cli", code), user.email, Date.now() + 5 * 60_000);
+  await getRegistry(c.env).createCliLoginCode(
+    await authHash(c.env, "cli", code),
+    { id: user.id, email: user.email, emails: user.emails },
+    redirect.toString(),
+    codeChallenge,
+    Date.now() + 60_000,
+  );
   redirect.searchParams.set("code", code);
+  redirect.searchParams.set("state", state);
   return c.redirect(redirect.toString());
 });
 
 auth.post("/cli/token", async (c) => {
   if (c.env.AUTH_MODE !== "builtin") return c.json({ error: "Built-in authentication is disabled" }, 404);
-  const { code } = await c.req.json<{ code?: string }>();
+  const { code, redirect_uri: redirectUri, code_verifier: codeVerifier } = await c.req.json<{
+    code?: string;
+    redirect_uri?: string;
+    code_verifier?: string;
+  }>();
   if (!code) return c.json({ error: "Missing code" }, 400);
-  const email = await getRegistry(c.env).consumeCliLoginCode(await authHash(c.env, "cli", code), Date.now());
-  if (!email) return c.json({ error: "Invalid or expired code" }, 400);
-  const token = await createBuiltinToken(c.env, { id: `email:${email}`, email, source: "email" }, "90d");
-  return c.json({ token, email });
+  const exchange = await getRegistry(c.env).consumeCliLoginCode(await authHash(c.env, "cli", code), Date.now());
+  if (!exchange) return c.json({ error: "Invalid or expired code" }, 400);
+  const redirect = validCliRedirect(redirectUri || "");
+  if (
+    !redirect ||
+    redirect.toString() !== exchange.redirectUri ||
+    !codeVerifier ||
+    !PKCE_VERIFIER_RE.test(codeVerifier) ||
+    await pkceChallenge(codeVerifier) !== exchange.codeChallenge
+  ) {
+    return c.json({ error: "Invalid authorization proof" }, 400);
+  }
+  const accessToken = await createCliToken(c.env, exchange.user);
+  c.header("Cache-Control", "no-store");
+  c.header("Pragma", "no-cache");
+  return c.json({
+    access_token: accessToken,
+    token_type: "Bearer",
+    expires_in: CLI_TOKEN_LIFETIME_SECONDS,
+    email: exchange.user.email,
+  });
 });

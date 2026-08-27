@@ -1,8 +1,10 @@
 import Conf from "conf";
+import { chmodSync } from "node:fs";
 
 interface Config {
   workerUrl: string;
   authToken: string;
+  authCredentials: Record<string, string>;
   documentMappings: Record<string, string>;
 }
 
@@ -11,6 +13,7 @@ const config = new Conf<Config>({
   defaults: {
     workerUrl: "",
     authToken: "",
+    authCredentials: {},
     documentMappings: {},
   },
 });
@@ -19,12 +22,37 @@ export function getConfig(): Config {
   return {
     workerUrl: config.get("workerUrl"),
     authToken: config.get("authToken") || "",
+    authCredentials: config.get("authCredentials") || {},
     documentMappings: config.get("documentMappings") || {},
   };
 }
 
-export function setAuthToken(token: string): void {
-  config.set("authToken", token);
+function protectConfigFile(): void {
+  protectCredentialFile(config.path);
+}
+
+export function protectCredentialFile(path: string): void {
+  try {
+    chmodSync(path, 0o600);
+  } catch {
+    // Conf will report any actual write failures. Permission hardening is best-effort
+    // on filesystems that do not implement POSIX modes.
+  }
+}
+
+export function setFallbackCredential(account: string, credential: string): void {
+  config.set("authCredentials", { ...config.get("authCredentials"), [account]: credential });
+  protectConfigFile();
+}
+
+export function clearStoredCredentials(account?: string): void {
+  config.set("authToken", "");
+  if (account) {
+    const credentials = { ...config.get("authCredentials") };
+    delete credentials[account];
+    config.set("authCredentials", credentials);
+  }
+  protectConfigFile();
 }
 
 export function setConfig(key: keyof Config, value: string): void {

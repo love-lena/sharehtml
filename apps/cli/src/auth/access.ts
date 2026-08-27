@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { getConfig } from "../config/store.js";
+import { loadCliCredential } from "./credentials.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -52,15 +52,16 @@ export async function getAccessToken(workerUrl: string): Promise<string | null> 
 export async function getAuthHeaders(
   workerUrl: string,
 ): Promise<{ headers: Record<string, string>; canLogin: boolean }> {
-  const configuredToken = getConfig().authToken;
-  if (configuredToken) {
-    return { headers: { Authorization: `Bearer ${configuredToken}` }, canLogin: true };
+  const { credential, expired } = await loadCliCredential(workerUrl);
+  if (expired) throw new Error("Session expired. Run: sharehtml login");
+  if (credential) {
+    return { headers: { Authorization: `Bearer ${credential.accessToken}` }, canLogin: true };
   }
   const token = await getAccessToken(workerUrl);
   if (!token) {
     return {
       headers: {},
-      canLogin: await hasCloudflaredBinary(),
+      canLogin: true,
     };
   }
 

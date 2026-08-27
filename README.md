@@ -44,7 +44,7 @@ bun install -g sharehtml
 npm install -g sharehtml
 ```
 
-If your team already has a sharehtml worker deployed, this is probably all you need — install the CLI, run `sharehtml config set-url <your-team-url>`, then `sharehtml login`. For built-in auth, the command opens the normal ShareHTML login page and securely hands a CLI token back through a temporary localhost callback; `cloudflared` is not required.
+If your team already has a sharehtml worker deployed, this is probably all you need — install the CLI, run `sharehtml config set-url <your-team-url>`, then `sharehtml login`. For built-in auth, the command opens the normal ShareHTML login page and securely hands a 24-hour CLI session back through a temporary `127.0.0.1` callback protected by state and PKCE; GitHub credentials never leave the Worker and `cloudflared` is not required. The CLI stores the session in macOS Keychain or Linux Secret Service when available, with a mode-`0600` local fallback.
 
 If you choose the legacy Cloudflare Access mode, you'll need a [Cloudflare API token](https://dash.cloudflare.com/profile/api-tokens) with these permissions:
 - **Account > Access: Apps and Policies > Edit**
@@ -153,6 +153,7 @@ The Worker checks the document's current share mode on every public shell and co
 | `sharehtml unshare <document>` | Make a document private |
 | `sharehtml skill install` | Install the agent skill for Claude Code, Codex, or OpenCode |
 | `sharehtml login` | Log in through ShareHTML (or legacy Cloudflare Access) |
+| `sharehtml logout` | Remove the saved CLI session for the configured deployment |
 | `sharehtml config set-url <url>` | Set the sharehtml URL |
 | `sharehtml config show` | Show current configuration |
 
@@ -175,7 +176,7 @@ Production secrets:
 
 | Secret | Required | Description |
 |--------|----------|-------------|
-| `AUTH_SECRET` | When `AUTH_MODE=builtin` | Random secret used to sign ShareHTML browser sessions and CLI tokens |
+| `AUTH_SECRET` | When `AUTH_MODE=builtin` | Random secret used to sign separate ShareHTML browser sessions and 24-hour CLI tokens |
 | `GITHUB_CLIENT_SECRET` | When using GitHub | GitHub OAuth app client secret |
 | `VIEWER_CAPABILITY_SECRET` | When auth is enabled | Secret used to sign short-lived browser capability tokens, keeping privileged viewer authority out of uploaded iframe JavaScript |
 

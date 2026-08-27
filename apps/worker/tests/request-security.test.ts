@@ -24,7 +24,7 @@ function createContext(
     method?: string;
     url?: string;
     headers?: Record<string, string>;
-    authUser: { email: string; source: "cookie" | "cf-access-token" | "access-jwt-header" | "dev" };
+    authUser: { email: string; source: "cookie" | "cf-access-token" | "access-jwt-header" | "bearer" | "dev" };
   },
 ): Context<AppBindings> {
   const requestHeaders = new Headers(headers);
@@ -263,6 +263,16 @@ describe("browser capability enforcement", () => {
       }),
     );
 
+    expect(response).toBeNull();
+  });
+
+  it("allows verified CLI bearer requests without browser capability headers", async () => {
+    const response = await requireHomeBrowserCapability(
+      createContext({
+        method: "POST",
+        authUser: { email: "user@example.com", source: "bearer" },
+      }),
+    );
     expect(response).toBeNull();
   });
 

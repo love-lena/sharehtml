@@ -104,10 +104,8 @@ export async function prepareDocumentUpload(
 }
 
 function getLoginErrorMessage(canLogin: boolean): string {
-  if (canLogin) {
-    return "Authentication required. Run: sharehtml login";
-  }
-  return "Authentication required. Install cloudflared and run: sharehtml login";
+  void canLogin;
+  return "Authentication required. Run: sharehtml login";
 }
 
 async function checkResponse(
