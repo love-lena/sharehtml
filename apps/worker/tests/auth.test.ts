@@ -4,6 +4,7 @@ import { SignJWT } from "jose";
 import { authMiddleware, createBuiltinToken, SESSION_COOKIE, verifyBuiltinToken } from "../src/utils/auth.js";
 import { getRegistry } from "../src/utils/registry.js";
 import type { AppBindings } from "../src/types.js";
+import { auth } from "../src/routes/auth.js";
 
 describe("built-in authentication", () => {
   it("signs and verifies ShareHTML session tokens", async () => {
@@ -59,6 +60,27 @@ describe("built-in authentication", () => {
       .sign(new TextEncoder().encode("test-secret"));
 
     await expect(verifyBuiltinToken(authEnv, oldToken)).resolves.toBeNull();
+  });
+
+  it("reports the verified emails recognized for the signed-in account", async () => {
+    const authEnv = { ...env, AUTH_MODE: "builtin", AUTH_SECRET: "test-secret" } as Env;
+    const token = await createBuiltinToken(authEnv, {
+      id: "github:123",
+      email: "primary@example.com",
+      emails: ["primary@example.com", "invited@example.org"],
+      source: "github",
+    }, "5m");
+
+    const response = await auth.request("https://example.com/me", {
+      headers: { Cookie: `${SESSION_COOKIE}=${token}` },
+    }, authEnv);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      id: "github:123",
+      email: "primary@example.com",
+      emails: ["primary@example.com", "invited@example.org"],
+    });
   });
 
   it("makes email codes single-use and limits rapid resends", async () => {
