@@ -187,7 +187,7 @@ api.post("/documents", async (c) => {
   const resolvedTitle = getDocumentTitle(sourceFilename, title, sourceKind);
 
   const registry = getRegistry(c.env);
-  const initialShareMode: ShareMode = c.env.AUTH_MODE === "access" ? "private" : "link";
+  const initialShareMode: ShareMode = c.env.AUTH_MODE === "none" ? "link" : "private";
 
   const writes: Array<Promise<unknown>> = [
     c.env.DOCUMENTS_BUCKET.put(getRenderedDocumentKey(id, renderedFilename), file.stream(), {
