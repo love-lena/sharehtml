@@ -547,8 +547,8 @@ api.put("/documents/:id/share", async (c) => {
   const protectedResponse = await requireViewerBrowserCapability(c, id);
   if (protectedResponse) return protectedResponse;
 
-  if (c.env.AUTH_MODE !== "access") {
-    return c.json({ error: "Cloudflare Access is required for document sharing controls" }, 400);
+  if (c.env.AUTH_MODE === "none") {
+    return c.json({ error: "Authentication is required for document sharing controls" }, 400);
   }
 
   const parsedBody = parseShareRequestBody(await c.req.json());

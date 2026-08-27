@@ -203,13 +203,13 @@ step "Open Storage & databases > R2 object storage and choose Enable or Purchase
 step "Complete checkout if Cloudflare asks. Usage can still remain within the free allowance."
 pause "Press Enter after R2 is enabled."
 
-stage "Enable Cloudflare Access"
-say "Access supplies the login wall for both the browser and cloudflared CLI."
-open_url "https://one.dash.cloudflare.com/"
-step "Choose Get started, select a Zero Trust team name, and finish the free-plan flow."
-step "Open Integrations > Identity providers and confirm Cloudflare is listed."
-step "Keep Restrict to account members enabled; add One-time PIN only for guests without Cloudflare accounts."
-pause "Press Enter after Zero Trust and a login method are enabled."
+stage "Create the GitHub login"
+say "A GitHub OAuth app lets users sign in with a verified GitHub email."
+open_url "https://github.com/settings/applications/new"
+step "Set the homepage URL to https://artifacts.lena.dog."
+step "Set the callback URL to https://artifacts.lena.dog/auth/github/callback."
+step "Create the app and keep its client ID and client secret ready for setup."
+pause "Press Enter after the GitHub OAuth app is ready."
 
 stage "Authenticate Wrangler"
 say "Wrangler needs browser authorization for your Cloudflare account. No API key is saved by this wizard."
@@ -221,10 +221,9 @@ npx wrangler whoami
 pause "Press Enter after the correct Cloudflare account is shown."
 
 stage "Run ShareHTML setup"
-say "The interactive setup will provision R2, the Worker, Durable Objects, the Custom Domain, and Access."
-step "Choose custom domain artifacts.lena.dog, enable Access, and allow only your email."
-step "For the temporary API token, grant Access Apps and Policies Edit plus Access Organizations Read."
-note "The token is masked, used in memory, and not saved. Revoke it after setup."
+say "The interactive setup will provision R2, the Worker, Durable Objects, the Custom Domain, and built-in authentication."
+step "Choose custom domain artifacts.lena.dog and built-in GitHub authentication."
+step "Paste the GitHub OAuth credentials when prompted; secret input is masked."
 pnpm run setup
 
 finish

@@ -2,6 +2,7 @@ import Conf from "conf";
 
 interface Config {
   workerUrl: string;
+  authToken: string;
   documentMappings: Record<string, string>;
 }
 
@@ -9,6 +10,7 @@ const config = new Conf<Config>({
   projectName: "sharehtml-cli",
   defaults: {
     workerUrl: "",
+    authToken: "",
     documentMappings: {},
   },
 });
@@ -16,8 +18,13 @@ const config = new Conf<Config>({
 export function getConfig(): Config {
   return {
     workerUrl: config.get("workerUrl"),
+    authToken: config.get("authToken") || "",
     documentMappings: config.get("documentMappings") || {},
   };
+}
+
+export function setAuthToken(token: string): void {
+  config.set("authToken", token);
 }
 
 export function setConfig(key: keyof Config, value: string): void {

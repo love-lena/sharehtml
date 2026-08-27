@@ -39,7 +39,7 @@ Set your team URL:
 sharehtml config set-url https://sharehtml.yourteam.workers.dev
 ```
 
-If your deployment uses Cloudflare Access, log in:
+If your deployment requires authentication, log in. Built-in auth opens the browser for GitHub:
 
 ```bash
 sharehtml login
@@ -75,7 +75,7 @@ If a document with the same filename exists, the CLI will prompt to update it. U
 | `sharehtml share <document>` | Publish an anonymous read-only link, or `--add`/`--remove` collaborator emails |
 | `sharehtml unshare <document>` | Make a document private |
 | `sharehtml skill install` | Install the agent skill for Claude Code, Codex, or OpenCode |
-| `sharehtml login` | Log in through Cloudflare Access |
+| `sharehtml login` | Log in through ShareHTML or legacy Cloudflare Access |
 | `sharehtml config set-url <url>` | Set the sharehtml URL |
 | `sharehtml config show` | Show current configuration |
 
@@ -83,4 +83,4 @@ If a document with the same filename exists, the CLI will prompt to update it. U
 
 See the main repository for setup instructions:
 
-https://github.com/jonesphillip/sharehtml
+https://github.com/love-lena/sharehtml

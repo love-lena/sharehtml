@@ -11,6 +11,8 @@ export async function deploymentRequiresLogin(): Promise<boolean> {
     return false;
   }
 
+  if (response.status === 401 || response.status === 403) return true;
+
   const location = response.headers.get("location") || "";
   return response.status >= 300 && response.status < 400 &&
     (location.includes("cloudflareaccess.com") || location.includes("/cdn-cgi/access/login"));

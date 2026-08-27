@@ -10,6 +10,7 @@ import { createCapabilityToken } from "./utils/capability.js";
 import { getAssetUrls } from "./utils/assets.js";
 import { normalizeEmail } from "./utils/email.js";
 import { getRegistry } from "./utils/registry.js";
+import { auth } from "./routes/auth.js";
 
 export { DocumentDO } from "./durable-objects/document.js";
 export { RegistryDO } from "./durable-objects/registry.js";
@@ -34,6 +35,7 @@ app.onError((err, c) => {
 
 app.get("/health", (c) => c.json({ status: "ok" }));
 app.route("/", publicViewer);
+app.route("/auth", auth);
 
 app.use("/*", authMiddleware);
 
@@ -73,7 +75,8 @@ app.get("/", async (c) => {
       page: documentsPage.page,
       pageSize,
       totalCount: documentsPage.totalCount,
-      requiresLogin: c.env.AUTH_MODE === "access",
+      requiresLogin: c.env.AUTH_MODE !== "none",
+      showLogout: c.env.AUTH_MODE === "builtin",
       homeCapabilityToken,
     }),
   );

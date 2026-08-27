@@ -60,7 +60,7 @@ export const deployCmd = new Command("deploy")
     try {
       const supportsPrivateDocuments = await deploymentRequiresLogin();
       if (opts.private && !supportsPrivateDocuments) {
-        throw new Error("Private documents require Cloudflare Access on this deployment.");
+        throw new Error("Private documents require authentication on this deployment.");
       }
 
       const filename = basename(filePath);

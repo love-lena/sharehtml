@@ -23,5 +23,5 @@ configCmd
       return;
     }
 
-    console.log(`Login:      run 'sharehtml login' when Cloudflare Access is enabled`);
+    console.log(`Login:      run 'sharehtml login' when authentication is enabled`);
   });

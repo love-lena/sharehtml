@@ -9,7 +9,7 @@ import {
 } from "../utils/security-constants.js";
 import { injectArtifactContentSecurityPolicy } from "../utils/artifact-security.js";
 
-type AuthMode = "access" | "none";
+type AuthMode = "access" | "builtin" | "none";
 type ShareMode = "private" | "link" | "emails";
 type ShareResponse = { mode: ShareMode; emails: string[] };
 
@@ -53,7 +53,7 @@ function parseCommentConfig(value: unknown): CommentConfig | null {
   if (!isRecord(value)) return null;
   if (typeof value.docId !== "string") return null;
   if (typeof value.email !== "string") return null;
-  if (value.authMode !== "access" && value.authMode !== "none") return null;
+  if (value.authMode !== "access" && value.authMode !== "builtin" && value.authMode !== "none") return null;
   if (value.shareMode !== "private" && value.shareMode !== "link" && value.shareMode !== "emails") return null;
   if (typeof value.canManageSharing !== "boolean") return null;
   if (typeof value.contentPath !== "string") return null;
@@ -127,7 +127,7 @@ let iframeDriven = false;
 let suppressScrollSync = false;
 let sidebarSpacer: HTMLElement | null = null;
 let hasAnimatedHighlights = false;
-let shareMode: ShareMode = AUTH_MODE === "access" ? config.shareMode : "link";
+let shareMode: ShareMode = AUTH_MODE !== "none" ? config.shareMode : "link";
 let sharedEmails: string[] = [];
 let emailsLoaded = false;
 let shareMessageOverride: string | null = null;
@@ -768,7 +768,7 @@ function openDocumentLink(rawHref: unknown) {
 
 function getShareDescription(): string {
   if (shareMessageOverride) return shareMessageOverride;
-  if (AUTH_MODE !== "access") return "anyone with the link can view and comment";
+  if (AUTH_MODE === "none") return "anyone with the link can view and comment";
   switch (shareMode) {
     case "link":
       return "anyone with the public link can view without signing in";
@@ -846,7 +846,7 @@ async function loadShareState() {
 }
 
 async function updateShareMode(nextMode: ShareMode, nextEmails?: string[]): Promise<boolean> {
-  if (!CAN_MANAGE_SHARING || AUTH_MODE !== "access") {
+  if (!CAN_MANAGE_SHARING || AUTH_MODE === "none") {
     renderShareModal();
     return true;
   }

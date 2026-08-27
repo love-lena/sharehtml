@@ -14,10 +14,5 @@
   },
   "devDependencies": {
     "typescript": "^5.7.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "fast-uri": "3.1.6"
-    }
   }
 }

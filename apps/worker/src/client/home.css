@@ -47,6 +47,17 @@ body {
   color: var(--color-text-faint);
 }
 
+.topbar-right form { margin: 0; }
+.topbar-logout {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+.topbar-logout:hover { color: var(--text); }
+
 .content {
   max-width: 640px;
   margin: 0 auto;

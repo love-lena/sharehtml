@@ -2,7 +2,15 @@ packages:
   - apps/*
   - packages/*
 
+overrides:
+  fast-uri: 3.1.6
+
 ignoredBuiltDependencies:
   - esbuild
   - sharp
   - workerd
+
+allowBuilds:
+  esbuild: false
+  sharp: false
+  workerd: false

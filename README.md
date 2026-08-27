@@ -31,7 +31,7 @@ npx wrangler login
 pnpm run setup
 ```
 
-The interactive setup script walks you through the Custom Domain or `workers.dev` choice, R2 bucket creation, deployment, CLI installation, and authentication. For a concrete personal-domain walkthrough, see [Personal Cloudflare deployment](docs/personal-cloudflare.md).
+The interactive setup script walks you through the Custom Domain or `workers.dev` choice, R2 bucket creation, deployment, CLI installation, and authentication. Built-in authentication uses GitHub OAuth; Cloudflare Access remains available as a legacy option. Without authentication, anyone with the URL can use the deployment. For a concrete personal-domain walkthrough, see [Personal Cloudflare deployment](docs/personal-cloudflare.md).
 If you enable Cloudflare Access, setup protects the home page, private viewers, collaboration, and APIs while creating a more-specific Access Bypass application for anonymous read-only `/p/*` links. It also provisions the production `VIEWER_CAPABILITY_SECRET` used to sign browser capability tokens for the trusted authenticated viewer shell.
 
 To install the CLI directly:
@@ -44,9 +44,9 @@ bun install -g sharehtml
 npm install -g sharehtml
 ```
 
-If your team already has a sharehtml worker deployed, this is probably all you need — install the CLI, run `sharehtml config set-url <your-team-url>`, then `sharehtml login`.
+If your team already has a sharehtml worker deployed, this is probably all you need — install the CLI, run `sharehtml config set-url <your-team-url>`, then `sharehtml login`. For built-in auth, the command opens the normal ShareHTML login page and securely hands a CLI token back through a temporary localhost callback; `cloudflared` is not required.
 
-If you enable Cloudflare Access, you'll need a [Cloudflare API token](https://dash.cloudflare.com/profile/api-tokens) with these permissions:
+If you choose the legacy Cloudflare Access mode, you'll need a [Cloudflare API token](https://dash.cloudflare.com/profile/api-tokens) with these permissions:
 - **Account > Access: Apps and Policies > Edit**
 - **Account > Access: Organization, Identity Providers, and Groups > Read**
 - **Account > Workers Scripts > Read** (only when resolving a `workers.dev` subdomain)
@@ -73,7 +73,7 @@ If you've already run setup and just need to redeploy:
 pnpm run deploy
 ```
 
-If `AUTH_MODE=access`, make sure the production worker already has `VIEWER_CAPABILITY_SECRET` configured. `pnpm run setup` handles that automatically.
+When authentication is enabled, make sure the production worker has `VIEWER_CAPABILITY_SECRET` configured. `pnpm run setup` handles that automatically.
 
 To create it manually:
 
@@ -152,7 +152,7 @@ The Worker checks the document's current share mode on every public shell and co
 | `sharehtml share <document>` | Share by link, or `--add`/`--remove` emails |
 | `sharehtml unshare <document>` | Make a document private |
 | `sharehtml skill install` | Install the agent skill for Claude Code, Codex, or OpenCode |
-| `sharehtml login` | Log in through Cloudflare Access |
+| `sharehtml login` | Log in through ShareHTML (or legacy Cloudflare Access) |
 | `sharehtml config set-url <url>` | Set the sharehtml URL |
 | `sharehtml config show` | Show current configuration |
 
@@ -166,7 +166,8 @@ Production auth vars live in `wrangler.jsonc` under `env.production.vars`, set b
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `AUTH_MODE` | Yes | `"none"` disables auth, `"access"` enables Cloudflare Access JWT verification |
+| `AUTH_MODE` | Yes | `"builtin"` enables GitHub login, `"none"` disables auth, and `"access"` keeps legacy Cloudflare Access JWT verification |
+| `GITHUB_CLIENT_ID` | When using GitHub | GitHub OAuth app client ID. Set its callback URL to `https://YOUR_HOST/auth/github/callback` |
 | `ACCESS_AUD` | When `AUTH_MODE=access` | Cloudflare Access Application Audience tag |
 | `ACCESS_TEAM` | When `AUTH_MODE=access` | Cloudflare Access team name |
 
@@ -174,7 +175,11 @@ Production secrets:
 
 | Secret | Required | Description |
 |--------|----------|-------------|
-| `VIEWER_CAPABILITY_SECRET` | When `AUTH_MODE=access` | Wrangler secret used to sign short-lived browser capability tokens. These tokens let the trusted parent viewer shell call privileged browser endpoints without giving the same authority to untrusted uploaded JS running inside the sandboxed iframe. |
+| `AUTH_SECRET` | When `AUTH_MODE=builtin` | Random secret used to sign ShareHTML browser sessions and CLI tokens |
+| `GITHUB_CLIENT_SECRET` | When using GitHub | GitHub OAuth app client secret |
+| `VIEWER_CAPABILITY_SECRET` | When auth is enabled | Secret used to sign short-lived browser capability tokens, keeping privileged viewer authority out of uploaded iframe JavaScript |
+
+You can configure the secrets manually with `npx wrangler secret put NAME --env production`. Use a separate random value for `AUTH_SECRET` and `VIEWER_CAPABILITY_SECRET` (for example, `openssl rand -hex 32`). GitHub accounts are keyed by their verified GitHub email.
 
 ## Project Structure
 
@@ -197,7 +202,7 @@ apps/
 │   │   │   ├── collab-client.ts      # In-iframe collaboration (comments, reactions)
 │   │   │   └── styles.css            # Shared styles
 │   │   └── utils/
-│   │       ├── auth.ts               # CF Access JWT verification
+│   │       ├── auth.ts               # Built-in sessions and CF Access JWT verification
 │   │       ├── registry.ts           # getRegistry() helper
 │   │       ├── crypto.ts             # sha256 utility
 │   │       ├── assets.ts             # Vite asset URL resolution

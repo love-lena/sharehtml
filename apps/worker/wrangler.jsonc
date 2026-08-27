@@ -11,7 +11,7 @@
   "assets": {
     "not_found_handling": "none",
     "binding": "ASSETS",
-    "run_worker_first": ["/d/*", "/p/*", "/api/*", "/health", "/"],
+    "run_worker_first": ["/d/*", "/p/*", "/api/*", "/auth/*", "/health", "/"],
   },
   "r2_buckets": [
     {
@@ -69,9 +69,10 @@
         },
       },
       "vars": {
-        "AUTH_MODE": "access",
+        "AUTH_MODE": "builtin",
         "ACCESS_AUD": "",
         "ACCESS_TEAM": "",
+        "GITHUB_CLIENT_ID": "Ov23ct0K9PR44LdQnb7r",
       },
       "secrets": {
         "required": ["VIEWER_CAPABILITY_SECRET"],
@@ -79,7 +80,7 @@
       "assets": {
         "not_found_handling": "none",
         "binding": "ASSETS",
-        "run_worker_first": ["/d/*", "/p/*", "/api/*", "/health", "/"],
+        "run_worker_first": ["/d/*", "/p/*", "/api/*", "/auth/*", "/health", "/"],
       },
       "r2_buckets": [
         {

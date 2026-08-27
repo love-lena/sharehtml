@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { getConfig } from "../config/store.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -51,6 +52,10 @@ export async function getAccessToken(workerUrl: string): Promise<string | null> 
 export async function getAuthHeaders(
   workerUrl: string,
 ): Promise<{ headers: Record<string, string>; canLogin: boolean }> {
+  const configuredToken = getConfig().authToken;
+  if (configuredToken) {
+    return { headers: { Authorization: `Bearer ${configuredToken}` }, canLogin: true };
+  }
   const token = await getAccessToken(workerUrl);
   if (!token) {
     return {

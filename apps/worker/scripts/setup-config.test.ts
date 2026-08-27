@@ -51,9 +51,10 @@ describe("Wrangler setup configuration", () => {
       name: "sharehtml",
       bucketName: "sharehtml-documents",
       customHostname: "artifacts.lena.dog",
-      authMode: "access",
+      authMode: "builtin",
       accessAud: expect.any(String),
       accessTeam: expect.any(String),
+      githubClientId: expect.any(String),
     });
   });
 
@@ -65,6 +66,7 @@ describe("Wrangler setup configuration", () => {
       authMode: "access",
       accessAud: "",
       accessTeam: "",
+      githubClientId: "",
     });
   });
 

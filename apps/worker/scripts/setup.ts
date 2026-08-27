@@ -147,6 +147,16 @@ async function promptWithDefault(question: string, defaultValue: string): Promis
   return answer || defaultValue;
 }
 
+async function promptRequired(question: string, defaultValue = ""): Promise<string> {
+  while (true) {
+    const answer = defaultValue
+      ? await promptWithDefault(question, defaultValue)
+      : await prompt(question);
+    if (answer) return answer;
+    console.log(`  ${dim("A value is required.")}`);
+  }
+}
+
 function promptSecret(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const originalWrite = Reflect.get(rl, "_writeToOutput");
@@ -489,6 +499,18 @@ async function ensureProductionSecret(name: string): Promise<"created" | "existi
   }
 
   const value = randomBytes(32).toString("hex");
+  await run(
+    "npx",
+    ["wrangler", "secret", "put", name, "--env", "production"],
+    { input: `${value}\n` },
+  );
+  return "created";
+}
+
+async function ensureConfiguredProductionSecret(name: string, promptLabel: string): Promise<"created" | "existing"> {
+  if (await hasProductionSecret(name)) return "existing";
+  const value = await promptSecret(promptLabel);
+  if (!value) throw new Error(`${name} is required`);
   await run(
     "npx",
     ["wrangler", "secret", "put", name, "--env", "production"],
@@ -1029,7 +1051,7 @@ async function maybeInstallAgentSkill(cliCmd: string): Promise<void> {
 async function main() {
   console.log();
   console.log(`  ${bold("sharehtml")} setup`);
-  console.log(`  ${dim("Deploy your worker and configure Cloudflare Access.")}`);
+  console.log(`  ${dim("Deploy your worker and configure authentication.")}`);
   console.log();
 
   // Detect wrangler CLI auth
@@ -1095,7 +1117,16 @@ async function main() {
 
   const accountId = wranglerAccount.id;
   console.log();
-  const useAccess = await confirm("Require authentication with Cloudflare Access?");
+  const useBuiltin = await confirm(
+    "Use built-in GitHub authentication?",
+    config.authMode === "builtin" || config.authMode === "none",
+  );
+  const useAccess = !useBuiltin && await confirm("Require authentication with Cloudflare Access?");
+  let githubClientId = config.githubClientId;
+  if (useBuiltin) {
+    console.log();
+    console.log(`  ${dim("GitHub OAuth credentials will be configured after the hostname is known.")}`);
+  }
   let accessAud = config.accessAud;
   let accessTeam = config.accessTeam;
   if (useAccess) {
@@ -1238,9 +1269,16 @@ async function main() {
   }
 
   s = spinner("Updating wrangler.jsonc production configuration...", true);
-  const productionVars: Record<string, string> = useAccess
-    ? { AUTH_MODE: "access", ACCESS_AUD: accessAud, ACCESS_TEAM: accessTeam }
-    : { AUTH_MODE: "none", ACCESS_AUD: "", ACCESS_TEAM: "" };
+  const productionVars: Record<string, string> = useBuiltin
+    ? {
+        AUTH_MODE: "builtin",
+        ACCESS_AUD: "",
+        ACCESS_TEAM: "",
+        GITHUB_CLIENT_ID: githubClientId,
+      }
+    : useAccess
+      ? { AUTH_MODE: "access", ACCESS_AUD: accessAud, ACCESS_TEAM: accessTeam }
+      : { AUTH_MODE: "none", ACCESS_AUD: "", ACCESS_TEAM: "" };
   try {
     writeWranglerProductionConfiguration(configPath, productionVars, deploymentTarget);
     s.stop("Production configuration updated");
@@ -1265,7 +1303,7 @@ async function main() {
   let savedConfig: string | null = null;
   let deployFailure: string | null = null;
   try {
-    if (useAccess && !(await productionWorkerExists())) {
+    if ((useAccess || useBuiltin) && !(await productionWorkerExists())) {
       savedConfig = readFileSync(configPath, "utf-8");
       writeFileSync(configPath, removeProductionSecretRequirements(savedConfig), "utf-8");
     }
@@ -1292,7 +1330,7 @@ async function main() {
   }
   if (deployFailure) fail(deployFailure);
 
-  if (useAccess) {
+  if (useAccess || useBuiltin) {
     s = spinner("Ensuring production browser capability secret...", true);
     try {
       const status = await ensureProductionSecret("VIEWER_CAPABILITY_SECRET");
@@ -1307,10 +1345,40 @@ async function main() {
     }
   }
 
-  if (!useAccess) {
+  if (useBuiltin) {
+    console.log();
+    console.log(`  Create a GitHub OAuth app with callback URL:`);
+    console.log(`  ${cyan(`${workerUrl}/auth/github/callback`)}`);
+    console.log();
+    githubClientId = await promptRequired("GitHub OAuth client ID:", githubClientId);
+
+    s = spinner("Updating provider configuration...", true);
+    try {
+      writeWranglerProductionConfiguration(configPath, {
+        ...productionVars,
+        GITHUB_CLIENT_ID: githubClientId,
+      }, deploymentTarget);
+      s.stop("Provider configuration updated");
+
+      s = spinner("Ensuring built-in authentication secret...", true);
+      const authSecretStatus = await ensureProductionSecret("AUTH_SECRET");
+      s.stop(authSecretStatus === "created" ? "Authentication secret created" : "Authentication secret already configured");
+      await ensureConfiguredProductionSecret("GITHUB_CLIENT_SECRET", "GitHub OAuth client secret:");
+
+      s = spinner("Deploying authentication configuration...", true);
+      await run("npx", ["vite", "build"], { env: { CLOUDFLARE_ENV: "production" } });
+      await run("npx", ["wrangler", "deploy", "--env", "production"], { input: "y\n" });
+      s.stop("Authentication configuration deployed");
+    } catch (error: unknown) {
+      s.stop();
+      fail(`Failed to configure built-in authentication: ${formatCommandError(error)}`);
+    }
+  }
+
+  if (!useAccess && !useBuiltin) {
     console.log();
     console.log(`  ${dim("Note: anyone with the URL can view and comment.")}`);
-    console.log(`  ${dim("Run setup again to add Cloudflare Access later.")}`);
+    console.log(`  ${dim("Run setup again to add authentication later.")}`);
   } else {
     console.log();
     console.log(`  ${dim("Note: wrangler.jsonc now contains your deployment config.")}`);
@@ -1354,7 +1422,7 @@ async function main() {
   console.log(`  ${bold("Setup complete")}`);
   console.log();
   console.log(`    ${dim("$")} ${cliCmd} config set-url ${workerUrl}`);
-  if (useAccess) {
+  if (useAccess || useBuiltin) {
     console.log(`    ${dim("$")} ${cliCmd} login`);
   }
   console.log(`    ${dim("$")} ${cliCmd} deploy my-page.html`);

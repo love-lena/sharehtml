@@ -41,7 +41,7 @@ viewer.get("/d/:id", async (c) => {
       email,
       authMode: c.env.AUTH_MODE,
       shareMode: shareModeFromInt(doc.is_shared),
-      canManageSharing: c.env.AUTH_MODE === "access" && emailsMatch(doc.owner_email, email),
+      canManageSharing: c.env.AUTH_MODE !== "none" && emailsMatch(doc.owner_email, email),
       assets,
       viewerCapabilityToken,
     }),

@@ -9,7 +9,7 @@ export const unshareCmd = new Command("unshare")
   .action(async (document: string) => {
     try {
       if (!(await deploymentRequiresLogin())) {
-        throw new Error("Private documents require Cloudflare Access on this deployment.");
+        throw new Error("Private documents require authentication on this deployment.");
       }
 
       const updated = await updateDocumentSharing(document, false);

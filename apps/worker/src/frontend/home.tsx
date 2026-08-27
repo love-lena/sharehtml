@@ -16,6 +16,7 @@ interface HomeParams {
   pageSize: number;
   totalCount: number;
   requiresLogin: boolean;
+  showLogout: boolean;
   homeCapabilityToken: string;
 }
 
@@ -65,7 +66,7 @@ function SetupBlock({ workerUrl, requiresLogin }: SetupBlockProps): JSX.Element 
     <div class="setup-block">
       <p>
         Deploy HTML, Markdown, or code files with the{" "}
-        <a href="https://github.com/jonesphillip/sharehtml">sharehtml CLI</a>.{" "}
+        <a href="https://github.com/love-lena/sharehtml">sharehtml CLI</a>.{" "}
         Requires <a href="https://bun.sh">Bun</a>.
       </p>
       <pre>
@@ -93,6 +94,7 @@ export function HomeView({
   pageSize,
   totalCount,
   requiresLogin,
+  showLogout,
   homeCapabilityToken,
 }: HomeParams): string {
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
@@ -118,6 +120,11 @@ export function HomeView({
           </a>
           <div class="topbar-right">
             <span class="topbar-email">{email}</span>
+            {showLogout && (
+              <form method="post" action="/auth/logout">
+                <button class="topbar-logout" type="submit">sign out</button>
+              </form>
+            )}
           </div>
         </div>
         <div class="content">

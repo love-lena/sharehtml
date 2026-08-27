@@ -67,6 +67,29 @@ export class RegistryDO extends DurableObject<Env> {
         PRIMARY KEY (doc_id, email)
       )
     `);
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS email_login_codes (
+        email TEXT PRIMARY KEY,
+        code_hash TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        requested_at INTEGER NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS cli_login_codes (
+        code_hash TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
+      )
+    `);
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS login_rate_limits (
+        rate_key TEXT PRIMARY KEY,
+        window_started_at INTEGER NOT NULL,
+        request_count INTEGER NOT NULL
+      )
+    `);
   }
 
   private ensureDocumentSharingColumn() {
@@ -127,6 +150,123 @@ export class RegistryDO extends DurableObject<Env> {
       color,
     );
     return { email: normalizedEmail, display_name: displayName, color };
+  }
+
+  async issueEmailLoginCode(
+    email: string,
+    codeHash: string,
+    requestedAt: number,
+    expiresAt: number,
+    requestKey?: string,
+  ): Promise<{ ok: boolean; retryAfter: number }> {
+    const normalizedEmail = normalizeEmail(email);
+    const existing = this.sql
+      .exec<{ requested_at: number }>(
+        "SELECT requested_at FROM email_login_codes WHERE email = ?",
+        normalizedEmail,
+      )
+      .toArray()[0];
+    const retryAfter = existing ? Math.max(0, 60 - Math.floor((requestedAt - existing.requested_at) / 1000)) : 0;
+    if (retryAfter > 0) return { ok: false, retryAfter };
+
+    const emailRateLimit = this.consumeLoginRateLimit(`email:${normalizedEmail}`, requestedAt, 15 * 60_000, 5);
+    if (emailRateLimit > 0) return { ok: false, retryAfter: emailRateLimit };
+    if (requestKey) {
+      const requestRateLimit = this.consumeLoginRateLimit(`request:${requestKey}`, requestedAt, 15 * 60_000, 20);
+      if (requestRateLimit > 0) return { ok: false, retryAfter: requestRateLimit };
+    }
+
+    this.sql.exec(
+      `INSERT INTO email_login_codes (email, code_hash, expires_at, requested_at, attempts)
+       VALUES (?, ?, ?, ?, 0)
+       ON CONFLICT(email) DO UPDATE SET
+         code_hash = excluded.code_hash,
+         expires_at = excluded.expires_at,
+         requested_at = excluded.requested_at,
+         attempts = 0`,
+      normalizedEmail,
+      codeHash,
+      expiresAt,
+      requestedAt,
+    );
+    return { ok: true, retryAfter: 0 };
+  }
+
+  private consumeLoginRateLimit(
+    rateKey: string,
+    now: number,
+    windowMs: number,
+    maximum: number,
+  ): number {
+    const row = this.sql
+      .exec<{ window_started_at: number; request_count: number }>(
+        "SELECT window_started_at, request_count FROM login_rate_limits WHERE rate_key = ?",
+        rateKey,
+      )
+      .toArray()[0];
+    if (!row || now - row.window_started_at >= windowMs) {
+      this.sql.exec(
+        `INSERT INTO login_rate_limits (rate_key, window_started_at, request_count)
+         VALUES (?, ?, 1)
+         ON CONFLICT(rate_key) DO UPDATE SET window_started_at = excluded.window_started_at, request_count = 1`,
+        rateKey,
+        now,
+      );
+      return 0;
+    }
+    if (row.request_count >= maximum) {
+      return Math.max(1, Math.ceil((windowMs - (now - row.window_started_at)) / 1000));
+    }
+    this.sql.exec(
+      "UPDATE login_rate_limits SET request_count = request_count + 1 WHERE rate_key = ?",
+      rateKey,
+    );
+    return 0;
+  }
+
+  async verifyEmailLoginCode(email: string, codeHash: string, now: number): Promise<boolean> {
+    const normalizedEmail = normalizeEmail(email);
+    const row = this.sql
+      .exec<{ code_hash: string; expires_at: number; attempts: number }>(
+        "SELECT code_hash, expires_at, attempts FROM email_login_codes WHERE email = ?",
+        normalizedEmail,
+      )
+      .toArray()[0];
+    if (!row || row.expires_at < now || row.attempts >= 5) {
+      this.sql.exec("DELETE FROM email_login_codes WHERE email = ?", normalizedEmail);
+      return false;
+    }
+    if (row.code_hash !== codeHash) {
+      this.sql.exec(
+        "UPDATE email_login_codes SET attempts = attempts + 1 WHERE email = ?",
+        normalizedEmail,
+      );
+      return false;
+    }
+    this.sql.exec("DELETE FROM email_login_codes WHERE email = ?", normalizedEmail);
+    return true;
+  }
+
+  async createCliLoginCode(codeHash: string, email: string, expiresAt: number): Promise<void> {
+    this.sql.exec("DELETE FROM cli_login_codes WHERE expires_at < ?", Date.now());
+    this.sql.exec(
+      "INSERT INTO cli_login_codes (code_hash, email, expires_at) VALUES (?, ?, ?)",
+      codeHash,
+      normalizeEmail(email),
+      expiresAt,
+    );
+  }
+
+  async consumeCliLoginCode(codeHash: string, now: number): Promise<string | null> {
+    const row = this.sql
+      .exec<{ email: string; expires_at: number }>(
+        "SELECT email, expires_at FROM cli_login_codes WHERE code_hash = ?",
+        codeHash,
+      )
+      .toArray()[0];
+    this.sql.exec("DELETE FROM cli_login_codes WHERE code_hash = ?", codeHash);
+    if (!row || row.expires_at < now) return null;
+    return row.email;
   }
 
   async createDocument(doc: {

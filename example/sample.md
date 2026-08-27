@@ -12,7 +12,7 @@ Regular text, **bold**, *italic*, ~~strikethrough~~, and `inline code`.
 
 ### Links
 
-Check out the [sharehtml repo](https://github.com/jonesphillip/sharehtml) for more info.
+Check out the [sharehtml repo](https://github.com/love-lena/sharehtml) for more info.
 
 ### Lists
 
@@ -55,4 +55,4 @@ const result = await fetch("/api/documents", {
 
 ---
 
-*Deployed with [sharehtml](https://github.com/jonesphillip/sharehtml).*
+*Deployed with [sharehtml](https://github.com/love-lena/sharehtml).*

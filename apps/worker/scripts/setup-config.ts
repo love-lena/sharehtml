@@ -11,6 +11,7 @@ export interface SetupConfig {
   authMode: string;
   accessAud: string;
   accessTeam: string;
+  githubClientId: string;
 }
 
 const formattingOptions = { insertSpaces: true, tabSize: 2, eol: "\n" };
@@ -71,6 +72,7 @@ export function readSetupConfig(source: string): SetupConfig {
     authMode: typeof vars.AUTH_MODE === "string" ? vars.AUTH_MODE : "none",
     accessAud: typeof vars.ACCESS_AUD === "string" ? vars.ACCESS_AUD : "",
     accessTeam: typeof vars.ACCESS_TEAM === "string" ? vars.ACCESS_TEAM : "",
+    githubClientId: typeof vars.GITHUB_CLIENT_ID === "string" ? vars.GITHUB_CLIENT_ID : "",
   };
 }
 

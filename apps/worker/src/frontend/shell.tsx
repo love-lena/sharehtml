@@ -17,7 +17,7 @@ interface ShellParams {
 }
 
 function getShareDescription(authMode: AuthMode, shareMode: ShareMode): string {
-  if (authMode !== "access") {
+  if (authMode === "none") {
     return "anyone with the link can view and comment";
   }
   switch (shareMode) {

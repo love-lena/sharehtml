@@ -160,9 +160,11 @@ async function requestWithAccess(
 ): Promise<Response> {
   const { workerUrl } = getClient();
   const auth = await getAuthHeaders(workerUrl);
+  const headers = new Headers(options.headers);
+  for (const [name, value] of Object.entries(auth.headers)) headers.set(name, value);
   const resp = await fetch(`${workerUrl}${options.path}`, {
     ...options,
-    headers: auth.headers,
+    headers,
     redirect: "manual",
   });
 
