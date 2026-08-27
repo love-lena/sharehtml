@@ -38,11 +38,13 @@ To install the CLI directly:
 
 ```bash
 # with Bun
-bun install -g sharehtml
+bun install -g sharehtml-cli
 
 # or with npm (Bun still needs to be installed for the CLI runtime)
-npm install -g sharehtml
+npm install -g sharehtml-cli
 ```
+
+The package is named `sharehtml-cli`; it installs the `sharehtml` command.
 
 If your team already has a sharehtml worker deployed, this is probably all you need — install the CLI, run `sharehtml config set-url <your-team-url>`, then `sharehtml login`. For built-in auth, the command opens the normal ShareHTML login page and securely hands a 24-hour CLI session back through a temporary `127.0.0.1` callback protected by state and PKCE; GitHub credentials never leave the Worker and `cloudflared` is not required. The CLI stores the session in macOS Keychain or Linux Secret Service when available, with a mode-`0600` local fallback.
 

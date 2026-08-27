@@ -25,11 +25,13 @@ If your team already has a sharehtml worker deployed, this package is probably a
 
 ```bash
 # with Bun
-bun install -g sharehtml
+bun install -g sharehtml-cli
 
 # or with npm (Bun still needs to be installed for the CLI runtime)
-npm install -g sharehtml
+npm install -g sharehtml-cli
 ```
+
+The package is named `sharehtml-cli`; it installs the `sharehtml` command.
 
 ## Quick Start
 
