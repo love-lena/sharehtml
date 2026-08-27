@@ -31,6 +31,12 @@ function randomToken(bytes = 24): string {
   return btoa(String.fromCharCode(...data)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+function randomUserCode(length = 8): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const data = crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(data, (value) => alphabet[value % alphabet.length]).join("");
+}
+
 function base64Url(data: ArrayBuffer): string {
   return btoa(String.fromCharCode(...new Uint8Array(data)))
     .replace(/\+/g, "-")
@@ -304,5 +310,88 @@ auth.post("/cli/token", async (c) => {
     token_type: "Bearer",
     expires_in: CLI_TOKEN_LIFETIME_SECONDS,
     email: exchange.user.email,
+  });
+});
+
+auth.post("/cli/device", async (c) => {
+  if (c.env.AUTH_MODE !== "builtin") return c.json({ error: "Built-in authentication is disabled" }, 404);
+  const { code_challenge: codeChallenge, code_challenge_method: method } = await c.req.json<{
+    code_challenge?: string;
+    code_challenge_method?: string;
+  }>();
+  if (method !== "S256" || !codeChallenge || !PKCE_CHALLENGE_RE.test(codeChallenge)) {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+  const deviceCode = randomToken(32);
+  const userCode = randomUserCode();
+  const origin = new URL(c.req.url).origin;
+  const verificationUri = `${origin}/auth/cli/device/verify`;
+  const now = Date.now();
+  const requestKey = await authHash(c.env, "cli-device-request", c.req.header("CF-Connecting-IP") || "unknown");
+  const issued = await getRegistry(c.env).createCliDeviceCode(
+    await authHash(c.env, "cli-device", deviceCode),
+    userCode,
+    codeChallenge,
+    now,
+    now + 10 * 60_000,
+    requestKey,
+  );
+  if (!issued.ok) return c.json({ error: "slow_down", retry_after: issued.retryAfter }, 429);
+  c.header("Cache-Control", "no-store");
+  return c.json({
+    device_code: deviceCode,
+    user_code: userCode,
+    verification_uri: verificationUri,
+    verification_uri_complete: `${verificationUri}?user_code=${userCode}`,
+    expires_in: 600,
+    interval: 3,
+  });
+});
+
+auth.get("/cli/device/verify", async (c) => {
+  if (c.env.AUTH_MODE !== "builtin") return c.text("Built-in authentication is disabled", 404);
+  const userCode = (c.req.query("user_code") || "").toUpperCase();
+  if (!/^[A-Z2-9]{8}$/.test(userCode)) return c.text("Invalid device code", 400);
+  const user = await getBuiltinUser(c);
+  if (!user || user.source !== "cookie") {
+    const next = `/auth/cli/device/verify?user_code=${encodeURIComponent(userCode)}`;
+    return c.redirect(`/auth/login?next=${encodeURIComponent(next)}`);
+  }
+  const approved = await getRegistry(c.env).approveCliDeviceCode(
+    userCode,
+    { id: user.id, email: user.email, emails: user.emails },
+    Date.now(),
+  );
+  if (!approved) return c.text("This device code is invalid, expired, or already used.", 400);
+  return c.html(`<!doctype html><html><head><meta charset="utf-8"><title>ShareHTML CLI authorized</title></head><body><main><h1>CLI authorized</h1><p>You can close this window and return to the terminal.</p></main></body></html>`);
+});
+
+auth.post("/cli/device/token", async (c) => {
+  if (c.env.AUTH_MODE !== "builtin") return c.json({ error: "Built-in authentication is disabled" }, 404);
+  const { device_code: deviceCode, code_verifier: codeVerifier } = await c.req.json<{
+    device_code?: string;
+    code_verifier?: string;
+  }>();
+  if (!deviceCode || !codeVerifier || !PKCE_VERIFIER_RE.test(codeVerifier)) {
+    return c.json({ error: "invalid_request" }, 400);
+  }
+  const result = await getRegistry(c.env).pollCliDeviceCode(
+    await authHash(c.env, "cli-device", deviceCode),
+    Date.now(),
+  );
+  if (result.status === "pending") return c.json({ error: "authorization_pending" }, 428);
+  if (result.status === "slow_down") return c.json({ error: "slow_down" }, 429);
+  if (result.status === "expired") return c.json({ error: "expired_token" }, 400);
+  if (await pkceChallenge(codeVerifier) !== result.codeChallenge) {
+    return c.json({ error: "invalid_grant" }, 400);
+  }
+  const accessToken = await createCliToken(c.env, result.user);
+  c.header("Cache-Control", "no-store");
+  c.header("Pragma", "no-cache");
+  return c.json({
+    access_token: accessToken,
+    token_type: "Bearer",
+    expires_in: CLI_TOKEN_LIFETIME_SECONDS,
+    email: result.user.email,
   });
 });

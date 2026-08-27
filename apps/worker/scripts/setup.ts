@@ -1,6 +1,7 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { createInterface } from "node:readline";
 import { resolve } from "node:path";
 import {
@@ -1026,22 +1027,18 @@ async function ensureCloudflaredForCli(): Promise<void> {
   console.log(`  ${dim(cloudflaredInstallUrl)}`);
 }
 
-async function maybeInstallAgentSkill(cliCmd: string): Promise<void> {
+async function maybeInstallAgentSkill(): Promise<void> {
   console.log();
   if (!(await confirm("Install the sharehtml agent skill for supported coding agents?"))) {
     return;
   }
 
   try {
-    if (cliCmd === "sharehtml") {
-      await runInteractive("sharehtml", ["skill", "install"]);
-    } else {
-      await runInteractive("pnpm", ["sharehtml", "skill", "install"], { cwd: getRepoRoot() });
-    }
+    await runInteractive("pnpm", ["sharehtml", "skill", "install"], { cwd: getRepoRoot() });
   } catch (error: unknown) {
     console.log();
     console.log(`  ${dim("Skill install did not complete.")}`);
-    console.log(`  ${dim("You can install it later with:")} ${cliCmd} skill install`);
+    console.log(`  ${dim("You can install it later from this repository with:")} pnpm sharehtml skill install`);
     if (error instanceof Error) {
       console.log(`  ${dim(error.message)}`);
     }
@@ -1398,16 +1395,21 @@ async function main() {
     if (await confirm("Install the sharehtml CLI globally?")) {
       s = spinner("Installing CLI...");
       try {
-        await run("pnpm", ["--filter", "./apps/cli", "run", "build"]);
-        await run("bun", ["link"], { cwd: resolve(import.meta.dirname, "../../cli") });
+        const installDir = resolve(homedir(), ".local/bin");
+        const installPath = resolve(installDir, "sharehtml");
+        mkdirSync(installDir, { recursive: true, mode: 0o755 });
+        copyFileSync(resolve(getRepoRoot(), "bin/sharehtml"), installPath);
+        chmodSync(installPath, 0o755);
         s.stop("CLI installed");
-        cliCmd = "sharehtml";
+        cliCmd = process.env.PATH?.split(":").includes(installDir) ? "sharehtml" : installPath;
       } catch {
         s.stop();
-        console.log(`  ${dim("Could not install globally. Use from the repo with:")} pnpm sharehtml`);
+        console.log(`  ${dim("Could not install the shell client. Use from the repo with:")} ./bin/sharehtml`);
+        cliCmd = "./bin/sharehtml";
       }
     } else {
-      console.log(`  ${dim("You can use the CLI from the repo with:")} pnpm sharehtml`);
+      console.log(`  ${dim("You can use the CLI from the repo with:")} ./bin/sharehtml`);
+      cliCmd = "./bin/sharehtml";
     }
   }
 
@@ -1415,7 +1417,7 @@ async function main() {
     await ensureCloudflaredForCli();
   }
 
-  await maybeInstallAgentSkill(cliCmd);
+  await maybeInstallAgentSkill();
 
   // Done
   console.log();

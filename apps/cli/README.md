@@ -1,8 +1,8 @@
-# sharehtml
+# Internal TypeScript CLI
 
 I've been using coding agents to write in markdown, make slides, and build interactive data analysis as static HTML files. Sending those files around still gets messy fast: you can't update them after sharing, and there's no way to get feedback inline. This is the reason I built sharehtml.
 
-This package is the Bun CLI for deploying documents to a sharehtml worker.
+This private workspace package retains the richer TypeScript implementation and its tests. It is not published. The supported fork client is the dependency-light [`bin/sharehtml`](../../bin/sharehtml) shell script.
 
 ## What is sharehtml?
 
@@ -20,18 +20,6 @@ Deploy a local document privately, collaborate with named people, or publish an 
 - A deployed sharehtml worker URL
 
 If your team already has a sharehtml worker deployed, this package is probably all you need.
-
-## Install
-
-```bash
-# with Bun
-bun install -g sharehtml-cli
-
-# or with npm (Bun still needs to be installed for the CLI runtime)
-npm install -g sharehtml-cli
-```
-
-The package is named `sharehtml-cli`; it installs the `sharehtml` command.
 
 ## Quick Start
 

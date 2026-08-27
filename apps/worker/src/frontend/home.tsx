@@ -65,13 +65,15 @@ function SetupBlock({ workerUrl, requiresLogin }: SetupBlockProps): JSX.Element 
   return (
     <div class="setup-block">
       <p>
-        Deploy HTML, Markdown, or code files with the{" "}
+        Deploy HTML files with the{" "}
         <a href="https://github.com/love-lena/sharehtml">sharehtml CLI</a>.{" "}
-        Requires <a href="https://bun.sh">Bun</a>.
+        It only requires <code>curl</code> and <code>openssl</code>.
       </p>
       <pre>
         {raw(`<span class="cmd-comment"># install the CLI</span>\n`)}
-        bun install -g sharehtml{"\n\n"}
+        mkdir -p "$HOME/.local/bin"{"\n"}
+        curl -fsSL https://raw.githubusercontent.com/love-lena/sharehtml/main/bin/sharehtml -o "$HOME/.local/bin/sharehtml"{"\n"}
+        chmod +x "$HOME/.local/bin/sharehtml"{"\n\n"}
         {raw(`<span class="cmd-comment"># configure</span>\n`)}
         sharehtml config set-url {workerUrl}{"\n"}
         {requiresLogin ? "sharehtml login\n" : ""}

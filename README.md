@@ -18,7 +18,7 @@ Deploy a local document privately, then choose whether to collaborate with named
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) 18+ and [pnpm](https://pnpm.io/)
-- [Bun](https://bun.sh/) (for the CLI and setup script)
+- [Bun](https://bun.sh/) (for the setup script and TypeScript development; not required by the shell client)
 - [Cloudflare account](https://dash.cloudflare.com/sign-up) with [R2 enabled](https://developers.cloudflare.com/r2/pricing/#free-tier) (free tier available)
 
 ## Quick Start
@@ -34,19 +34,18 @@ pnpm run setup
 The interactive setup script walks you through the Custom Domain or `workers.dev` choice, R2 bucket creation, deployment, CLI installation, and authentication. Built-in authentication uses GitHub OAuth; Cloudflare Access remains available as a legacy option. Without authentication, anyone with the URL can use the deployment. For a concrete personal-domain walkthrough, see [Personal Cloudflare deployment](docs/personal-cloudflare.md).
 If you enable Cloudflare Access, setup protects the home page, private viewers, collaboration, and APIs while creating a more-specific Access Bypass application for anonymous read-only `/p/*` links. It also provisions the production `VIEWER_CAPABILITY_SECRET` used to sign browser capability tokens for the trusted authenticated viewer shell.
 
-To install the CLI directly:
+The fork ships a dependency-light shell client. Install it directly from the repository:
 
 ```bash
-# with Bun
-bun install -g sharehtml-cli
-
-# or with npm (Bun still needs to be installed for the CLI runtime)
-npm install -g sharehtml-cli
+mkdir -p "$HOME/.local/bin"
+curl -fsSL https://raw.githubusercontent.com/love-lena/sharehtml/main/bin/sharehtml \
+  -o "$HOME/.local/bin/sharehtml"
+chmod +x "$HOME/.local/bin/sharehtml"
 ```
 
-The package is named `sharehtml-cli`; it installs the `sharehtml` command.
+Ensure `$HOME/.local/bin` is on `PATH`. The client needs only `curl` and `openssl`; macOS Keychain and Linux Secret Service are used when available. It defaults to `https://artifacts.lena.dog`, and another deployment can be selected with `sharehtml config set-url <url>`.
 
-If your team already has a sharehtml worker deployed, this is probably all you need — install the CLI, run `sharehtml config set-url <your-team-url>`, then `sharehtml login`. For built-in auth, the command opens the normal ShareHTML login page and securely hands a 24-hour CLI session back through a temporary `127.0.0.1` callback protected by state and PKCE; GitHub credentials never leave the Worker and `cloudflared` is not required. The CLI stores the session in macOS Keychain or Linux Secret Service when available, with a mode-`0600` local fallback.
+If your team already has a sharehtml worker deployed, install the script, run `sharehtml config set-url <your-team-url>`, then `sharehtml login`. For built-in auth, the command starts a PKCE-protected device authorization, opens the normal ShareHTML login page, and polls for completion. GitHub credentials never leave the Worker and `cloudflared` is not required. The resulting ShareHTML session lasts 24 hours and is stored in macOS Keychain or Linux Secret Service when available, with a mode-`0600` local fallback.
 
 If you choose the legacy Cloudflare Access mode, you'll need a [Cloudflare API token](https://dash.cloudflare.com/profile/api-tokens) with these permissions:
 - **Account > Access: Apps and Policies > Edit**
@@ -116,7 +115,7 @@ Browser ◄┘──► Durable Objects
 | **RegistryDO** | Global [Durable Object](https://developers.cloudflare.com/durable-objects/) — users, document metadata, view history (SQLite) |
 | **DocumentDO** | Per-document Durable Object — comments, reactions, real-time presence over WebSocket |
 | **[R2](https://developers.cloudflare.com/r2/)** | Stores the actual HTML files |
-| **CLI** | Bun-based command-line tool for deploying and managing documents |
+| **CLI** | Dependency-light shell client using `curl`, `openssl`, and browser device authorization |
 
 ### Uploaded document security
 
@@ -144,17 +143,15 @@ The Worker checks the document's current share mode on every public shell and co
 
 | Command | Description |
 |---------|-------------|
-| `sharehtml deploy <file>` | Deploy an HTML, Markdown, or code file (creates or updates) |
-| `sharehtml list` | List your documents |
-| `sharehtml open <id>` | Open a document in the browser |
-| `sharehtml pull <id>` | Download a document locally |
-| `sharehtml diff <file>` | Compare local file against the deployed version |
-| `sharehtml comments <id>` | Show unresolved comments for a document |
+| `sharehtml deploy <file> [title]` | Upload a new HTML artifact |
+| `sharehtml update <id> <file> [title]` | Replace an existing artifact |
+| `sharehtml list` | List documents as JSON |
+| `sharehtml pull <id> <output>` | Download the original source |
+| `sharehtml comments <id>` | Fetch comments as JSON |
 | `sharehtml delete <id>` | Delete a document |
-| `sharehtml share <document>` | Share by link, or `--add`/`--remove` emails |
-| `sharehtml unshare <document>` | Make a document private |
-| `sharehtml skill install` | Install the agent skill for Claude Code, Codex, or OpenCode |
-| `sharehtml login` | Log in through ShareHTML (or legacy Cloudflare Access) |
+| `sharehtml share <id> <mode> [emails]` | Set `link`, `private`, or `emails` sharing |
+| `sharehtml unshare <id>` | Make a document private |
+| `sharehtml login` | Authorize the shell client through ShareHTML and GitHub |
 | `sharehtml logout` | Remove the saved CLI session for the configured deployment |
 | `sharehtml config set-url <url>` | Set the sharehtml URL |
 | `sharehtml config show` | Show current configuration |

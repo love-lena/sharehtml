@@ -1,0 +1,259 @@
+#!/bin/sh
+set -eu
+
+DEFAULT_URL="https://artifacts.lena.dog"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/sharehtml"
+CONFIG_FILE="$CONFIG_DIR/config"
+CREDENTIAL_FILE="$CONFIG_DIR/credentials"
+KEYCHAIN_SERVICE="dog.lena.sharehtml.cli"
+
+die() {
+  printf 'Error: %s\n' "$*" >&2
+  exit 1
+}
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || die "$1 is required"
+}
+
+worker_url() {
+  if [ -n "${SHAREHTML_URL:-}" ]; then
+    printf '%s\n' "${SHAREHTML_URL%/}"
+  elif [ -f "$CONFIG_FILE" ]; then
+    sed -n 's/^url=//p' "$CONFIG_FILE" | head -n 1
+  else
+    printf '%s\n' "$DEFAULT_URL"
+  fi
+}
+
+origin_key() {
+  worker_url | sed -E 's#^(https?://[^/]+).*$#\1#' | tr '[:upper:]' '[:lower:]'
+}
+
+json_string() {
+  key=$1
+  sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
+}
+
+json_number() {
+  key=$1
+  sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p"
+}
+
+save_credential() {
+  value=$1
+  account=$(origin_key)
+  mkdir -p "$CONFIG_DIR"
+  chmod 700 "$CONFIG_DIR"
+  if [ "$(uname -s)" = "Darwin" ] && command -v security >/dev/null 2>&1; then
+    if printf '%s\n' "$value" | security add-generic-password -U -s "$KEYCHAIN_SERVICE" -a "$account" -w >/dev/null 2>&1; then
+      rm -f "$CREDENTIAL_FILE"
+      return
+    fi
+  elif command -v secret-tool >/dev/null 2>&1; then
+    if printf '%s' "$value" | secret-tool store --label="ShareHTML CLI ($account)" service "$KEYCHAIN_SERVICE" account "$account" >/dev/null 2>&1; then
+      rm -f "$CREDENTIAL_FILE"
+      return
+    fi
+  fi
+  umask 077
+  printf '%s|%s\n' "$account" "$value" > "$CREDENTIAL_FILE"
+  chmod 600 "$CREDENTIAL_FILE"
+}
+
+load_credential() {
+  account=$(origin_key)
+  value=""
+  if [ "$(uname -s)" = "Darwin" ] && command -v security >/dev/null 2>&1; then
+    value=$(security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$account" -w 2>/dev/null || true)
+  elif command -v secret-tool >/dev/null 2>&1; then
+    value=$(secret-tool lookup service "$KEYCHAIN_SERVICE" account "$account" 2>/dev/null || true)
+  fi
+  if [ -z "$value" ] && [ -f "$CREDENTIAL_FILE" ]; then
+    while IFS='|' read -r saved_account saved_expiry saved_email saved_token; do
+      if [ "$saved_account" = "$account" ]; then
+        value="$saved_expiry|$saved_email|$saved_token"
+        break
+      fi
+    done < "$CREDENTIAL_FILE"
+  fi
+  printf '%s\n' "$value"
+}
+
+clear_credential() {
+  account=$(origin_key)
+  if [ "$(uname -s)" = "Darwin" ] && command -v security >/dev/null 2>&1; then
+    security delete-generic-password -s "$KEYCHAIN_SERVICE" -a "$account" >/dev/null 2>&1 || true
+  elif command -v secret-tool >/dev/null 2>&1; then
+    secret-tool clear service "$KEYCHAIN_SERVICE" account "$account" >/dev/null 2>&1 || true
+  fi
+  rm -f "$CREDENTIAL_FILE"
+}
+
+auth_token() {
+  value=$(load_credential)
+  [ -n "$value" ] || die "Authentication required. Run: sharehtml login"
+  expires_at=${value%%|*}
+  rest=${value#*|}
+  token=${rest#*|}
+  case "$expires_at" in *[!0-9]*|'') die "Saved login is invalid. Run: sharehtml login" ;; esac
+  if [ "$expires_at" -le "$(date +%s)" ]; then
+    clear_credential
+    die "Session expired. Run: sharehtml login"
+  fi
+  printf '%s\n' "$token"
+}
+
+open_browser() {
+  url=$1
+  if command -v open >/dev/null 2>&1; then
+    open "$url" >/dev/null 2>&1 || true
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$url" >/dev/null 2>&1 || true
+  fi
+}
+
+login() {
+  need curl
+  need openssl
+  url=$(worker_url)
+  verifier=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')
+  challenge=$(printf '%s' "$verifier" | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+  response=$(curl -fsS -X POST "$url/auth/cli/device" \
+    -H 'Content-Type: application/json' \
+    --data "{\"code_challenge\":\"$challenge\",\"code_challenge_method\":\"S256\"}") || die "Could not start browser login"
+  device_code=$(printf '%s' "$response" | json_string device_code)
+  verify_url=$(printf '%s' "$response" | json_string verification_uri_complete)
+  interval=$(printf '%s' "$response" | json_number interval)
+  expires_in=$(printf '%s' "$response" | json_number expires_in)
+  [ -n "$device_code" ] && [ -n "$verify_url" ] || die "Unexpected login response"
+  interval=${interval:-3}
+  expires_in=${expires_in:-600}
+  deadline=$(($(date +%s) + expires_in))
+  printf 'Open this URL to authorize the CLI:\n%s\n' "$verify_url"
+  open_browser "$verify_url"
+
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    sleep "$interval"
+    response=$(curl -sS -X POST "$url/auth/cli/device/token" \
+      -H 'Content-Type: application/json' \
+      --data "{\"device_code\":\"$device_code\",\"code_verifier\":\"$verifier\"}") || continue
+    token=$(printf '%s' "$response" | json_string access_token)
+    if [ -n "$token" ]; then
+      ttl=$(printf '%s' "$response" | json_number expires_in)
+      email=$(printf '%s' "$response" | json_string email)
+      [ "$ttl" = "86400" ] || die "Worker returned an unexpected session lifetime"
+      expires_at=$(($(date +%s) + ttl))
+      save_credential "$expires_at|$email|$token"
+      printf 'Login complete (%s).\n' "$email"
+      return
+    fi
+    error=$(printf '%s' "$response" | json_string error)
+    case "$error" in
+      authorization_pending) ;;
+      slow_down) interval=$((interval + 2)) ;;
+      *) die "Login failed: ${error:-unexpected response}" ;;
+    esac
+  done
+  die "Login timed out after 10 minutes"
+}
+
+api() {
+  method=$1
+  path=$2
+  shift 2
+  token=$(auth_token)
+  curl -fsS -X "$method" "$(worker_url)$path" -H "Authorization: Bearer $token" "$@" || {
+    printf '\n' >&2
+    die "Request failed"
+  }
+}
+
+deploy() {
+  [ $# -ge 1 ] || die "Usage: sharehtml deploy FILE [TITLE]"
+  file=$1
+  title=${2:-}
+  [ -f "$file" ] || die "File not found: $file"
+  set -- -F "file=@$file;type=text/html" -F "source=@$file" -F "sourceKind=html"
+  [ -z "$title" ] || set -- "$@" --form-string "title=$title"
+  api POST /api/documents "$@"
+  printf '\n'
+}
+
+update() {
+  [ $# -ge 2 ] || die "Usage: sharehtml update ID FILE [TITLE]"
+  id=$1
+  file=$2
+  title=${3:-}
+  [ -f "$file" ] || die "File not found: $file"
+  set -- -F "file=@$file;type=text/html" -F "source=@$file" -F "sourceKind=html"
+  [ -z "$title" ] || set -- "$@" --form-string "title=$title"
+  api PUT "/api/documents/$id" "$@"
+  printf '\n'
+}
+
+share_document() {
+  [ $# -ge 2 ] || die "Usage: sharehtml share ID link|private|emails [email1,email2]"
+  id=$1
+  mode=$2
+  case "$mode" in
+    link|private) body="{\"mode\":\"$mode\"}" ;;
+    emails)
+      emails=${3:-}
+      case "$emails" in *[!A-Za-z0-9@._+,\-]*|'') die "Provide a comma-separated email list" ;; esac
+      quoted=$(printf '%s' "$emails" | sed 's/,/","/g')
+      body="{\"mode\":\"emails\",\"emails\":[\"$quoted\"]}"
+      ;;
+    *) die "Sharing mode must be link, private, or emails" ;;
+  esac
+  api PUT "/api/documents/$id/share" -H 'Content-Type: application/json' --data "$body"
+  printf '\n'
+}
+
+usage() {
+  cat <<'EOF'
+Usage: sharehtml COMMAND [ARGS]
+
+  login                         Authorize this device in your browser
+  logout                        Remove the local 24-hour session
+  config set-url URL            Set the ShareHTML deployment URL
+  config show                   Print the configured URL
+  deploy FILE [TITLE]           Upload a new HTML artifact
+  update ID FILE [TITLE]        Replace an existing artifact
+  list                          List documents as JSON
+  comments ID                   Fetch document comments as JSON
+  share ID MODE [EMAILS]        Set link, private, or emails sharing
+  unshare ID                    Make a document private
+  delete ID                     Delete a document
+  pull ID OUTPUT                Download the original source
+EOF
+}
+
+command=${1:-help}
+[ $# -eq 0 ] || shift
+case "$command" in
+  login) login ;;
+  logout) clear_credential; printf 'Logged out of %s.\n' "$(worker_url)" ;;
+  config)
+    sub=${1:-show}
+    case "$sub" in
+      set-url)
+        [ $# -eq 2 ] || die "Usage: sharehtml config set-url URL"
+        mkdir -p "$CONFIG_DIR"; chmod 700 "$CONFIG_DIR"; umask 077
+        printf 'url=%s\n' "${2%/}" > "$CONFIG_FILE"; chmod 600 "$CONFIG_FILE"
+        ;;
+      show) worker_url ;;
+      *) die "Unknown config command: $sub" ;;
+    esac
+    ;;
+  deploy) deploy "$@" ;;
+  update) update "$@" ;;
+  list) api GET /api/documents; printf '\n' ;;
+  comments) [ $# -eq 1 ] || die "Usage: sharehtml comments ID"; api GET "/api/documents/$1/comments"; printf '\n' ;;
+  share) share_document "$@" ;;
+  unshare) [ $# -eq 1 ] || die "Usage: sharehtml unshare ID"; share_document "$1" private ;;
+  delete) [ $# -eq 1 ] || die "Usage: sharehtml delete ID"; api DELETE "/api/documents/$1"; printf '\n' ;;
+  pull) [ $# -eq 2 ] || die "Usage: sharehtml pull ID OUTPUT"; token=$(auth_token); curl -fsS "$(worker_url)/api/documents/$1/source" -H "Authorization: Bearer $token" -o "$2" ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; die "Unknown command: $command" ;;
+esac

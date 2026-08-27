@@ -94,6 +94,16 @@ export class RegistryDO extends DurableObject<Env> {
         request_count INTEGER NOT NULL
       )
     `);
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS cli_device_codes (
+        device_hash TEXT PRIMARY KEY,
+        user_code TEXT NOT NULL UNIQUE,
+        code_challenge TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        last_polled_at INTEGER,
+        user_json TEXT
+      )
+    `);
   }
 
   private ensureDocumentSharingColumn() {
@@ -318,6 +328,103 @@ export class RegistryDO extends DurableObject<Env> {
       };
     } catch {
       return null;
+    }
+  }
+
+  async createCliDeviceCode(
+    deviceHash: string,
+    userCode: string,
+    codeChallenge: string,
+    requestedAt: number,
+    expiresAt: number,
+    requestKey: string,
+  ): Promise<{ ok: boolean; retryAfter: number }> {
+    const retryAfter = this.consumeLoginRateLimit(`cli-device:${requestKey}`, requestedAt, 15 * 60_000, 30);
+    if (retryAfter > 0) return { ok: false, retryAfter };
+    this.sql.exec("DELETE FROM cli_device_codes WHERE expires_at < ?", requestedAt);
+    this.sql.exec(
+      `INSERT INTO cli_device_codes
+       (device_hash, user_code, code_challenge, expires_at)
+       VALUES (?, ?, ?, ?)`,
+      deviceHash,
+      userCode,
+      codeChallenge,
+      expiresAt,
+    );
+    return { ok: true, retryAfter: 0 };
+  }
+
+  async approveCliDeviceCode(
+    userCode: string,
+    user: { id: string; email: string; emails?: string[] },
+    now: number,
+  ): Promise<boolean> {
+    this.sql.exec("DELETE FROM cli_device_codes WHERE expires_at < ?", now);
+    const existing = this.sql
+      .exec<{ device_hash: string }>(
+        "SELECT device_hash FROM cli_device_codes WHERE user_code = ? AND user_json IS NULL",
+        userCode,
+      )
+      .toArray()[0];
+    if (!existing) return false;
+    this.sql.exec(
+      "UPDATE cli_device_codes SET user_json = ? WHERE device_hash = ?",
+      JSON.stringify({
+        id: user.id,
+        email: normalizeEmail(user.email),
+        emails: [...new Set((user.emails || []).map(normalizeEmail).filter(Boolean))],
+      }),
+      existing.device_hash,
+    );
+    return true;
+  }
+
+  async pollCliDeviceCode(deviceHash: string, now: number): Promise<
+    | { status: "pending" | "slow_down" | "expired" }
+    | {
+      status: "approved";
+      codeChallenge: string;
+      user: { id: string; email: string; emails: string[] };
+    }
+  > {
+    const row = this.sql
+      .exec<{
+        expires_at: number;
+        last_polled_at: number | null;
+        code_challenge: string;
+        user_json: string | null;
+      }>(
+        `SELECT expires_at, last_polled_at, code_challenge, user_json
+         FROM cli_device_codes WHERE device_hash = ?`,
+        deviceHash,
+      )
+      .toArray()[0];
+    if (!row || row.expires_at < now) {
+      this.sql.exec("DELETE FROM cli_device_codes WHERE device_hash = ?", deviceHash);
+      return { status: "expired" };
+    }
+    if (row.last_polled_at && now - row.last_polled_at < 2_000) return { status: "slow_down" };
+    this.sql.exec("UPDATE cli_device_codes SET last_polled_at = ? WHERE device_hash = ?", now, deviceHash);
+    if (!row.user_json) return { status: "pending" };
+
+    // An approved device code is single-use, even when the PKCE proof is wrong.
+    this.sql.exec("DELETE FROM cli_device_codes WHERE device_hash = ?", deviceHash);
+    try {
+      const user = JSON.parse(row.user_json) as { id?: unknown; email?: unknown; emails?: unknown };
+      if (typeof user.id !== "string" || typeof user.email !== "string" || !Array.isArray(user.emails)) {
+        return { status: "expired" };
+      }
+      return {
+        status: "approved",
+        codeChallenge: row.code_challenge,
+        user: {
+          id: user.id,
+          email: normalizeEmail(user.email),
+          emails: user.emails.filter((email): email is string => typeof email === "string").map(normalizeEmail).filter(Boolean),
+        },
+      };
+    } catch {
+      return { status: "expired" };
     }
   }
 

@@ -1,6 +1,7 @@
 {
-  "name": "sharehtml-cli",
-  "version": "0.1.0",
+  "name": "@sharehtml/cli",
+  "version": "0.0.0",
+  "private": true,
   "description": "CLI for deploying local documents to ShareHTML for collaborative commenting",
   "license": "Apache-2.0",
   "type": "module",
@@ -13,19 +14,10 @@
   "bugs": {
     "url": "https://github.com/love-lena/sharehtml/issues"
   },
-  "bin": {
-    "sharehtml": "./dist/index.js"
-  },
-  "files": [
-    "dist"
-  ],
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun",
     "dev": "bun --watch src/index.ts",
-    "test": "bun test src/**/*.test.ts",
+    "test": "bun test src",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

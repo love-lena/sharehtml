@@ -288,4 +288,68 @@ describe("built-in authentication", () => {
     }, authEnv);
     expect(response.status).toBe(400);
   });
+
+  it("approves a PKCE-bound device login through the browser session", async () => {
+    const authEnv = { ...env, AUTH_MODE: "builtin", AUTH_SECRET: "test-secret" } as Env;
+    const verifier = "d".repeat(43);
+    const challengeBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+    const challenge = btoa(String.fromCharCode(...new Uint8Array(challengeBytes)))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const start = await auth.request("https://example.com/cli/device", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code_challenge: challenge, code_challenge_method: "S256" }),
+    }, authEnv);
+    expect(start.status).toBe(200);
+    const device = await start.json<{
+      device_code: string;
+      user_code: string;
+      verification_uri_complete: string;
+      expires_in: number;
+      interval: number;
+    }>();
+    expect(device.expires_in).toBe(600);
+    expect(device.interval).toBe(3);
+
+    const unauthenticated = await auth.request(
+      new URL(device.verification_uri_complete).pathname.replace(/^\/auth/, "") + `?user_code=${device.user_code}`,
+      {},
+      authEnv,
+    );
+    expect(unauthenticated.status).toBe(302);
+    expect(unauthenticated.headers.get("location")).toContain("/auth/login");
+
+    const session = await createBuiltinToken(authEnv, {
+      id: "github:777",
+      email: "person@example.com",
+      emails: ["person@example.com", "work@example.org"],
+      source: "github",
+    });
+    const approved = await auth.request(
+      `/cli/device/verify?user_code=${device.user_code}`,
+      { headers: { Cookie: `${SESSION_COOKIE}=${session}` } },
+      authEnv,
+    );
+    expect(approved.status).toBe(200);
+
+    const exchange = await auth.request("https://example.com/cli/device/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_code: device.device_code, code_verifier: verifier }),
+    }, authEnv);
+    expect(exchange.status).toBe(200);
+    const token = await exchange.json<{ access_token: string; expires_in: number }>();
+    expect(token.expires_in).toBe(86_400);
+    await expect(verifyCliToken(authEnv, token.access_token)).resolves.toMatchObject({
+      id: "github:777",
+      emails: ["person@example.com", "work@example.org"],
+    });
+
+    const reused = await auth.request("https://example.com/cli/device/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_code: device.device_code, code_verifier: verifier }),
+    }, authEnv);
+    expect(reused.status).toBe(400);
+  });
 });
