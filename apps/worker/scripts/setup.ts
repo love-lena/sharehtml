@@ -1023,7 +1023,7 @@ async function ensureCloudflaredForCli(): Promise<void> {
     }
   }
 
-  console.log(`  ${dim("cloudflared is required before running: sharehtml login")}`);
+  console.log(`  ${dim("cloudflared is required before running: htmldog login")}`);
   console.log(`  ${dim(cloudflaredInstallUrl)}`);
 }
 
@@ -1383,33 +1383,33 @@ async function main() {
 
   // CLI install
   console.log();
-  let cliCmd = "pnpm sharehtml";
+  let cliCmd = "./bin/htmldog";
   let hasCli = false;
   try {
-    await run("which", ["sharehtml"]);
+    await run("which", ["htmldog"]);
     hasCli = true;
-    cliCmd = "sharehtml";
+    cliCmd = "htmldog";
   } catch {}
 
   if (!hasCli) {
-    if (await confirm("Install the sharehtml CLI globally?")) {
+    if (await confirm("Install the htmldog CLI?")) {
       s = spinner("Installing CLI...");
       try {
         const installDir = resolve(homedir(), ".local/bin");
-        const installPath = resolve(installDir, "sharehtml");
+        const installPath = resolve(installDir, "htmldog");
         mkdirSync(installDir, { recursive: true, mode: 0o755 });
-        copyFileSync(resolve(getRepoRoot(), "bin/sharehtml"), installPath);
+        copyFileSync(resolve(getRepoRoot(), "bin/htmldog"), installPath);
         chmodSync(installPath, 0o755);
         s.stop("CLI installed");
-        cliCmd = process.env.PATH?.split(":").includes(installDir) ? "sharehtml" : installPath;
+        cliCmd = process.env.PATH?.split(":").includes(installDir) ? "htmldog" : installPath;
       } catch {
         s.stop();
-        console.log(`  ${dim("Could not install the shell client. Use from the repo with:")} ./bin/sharehtml`);
-        cliCmd = "./bin/sharehtml";
+        console.log(`  ${dim("Could not install the shell client. Use from the repo with:")} ./bin/htmldog`);
+        cliCmd = "./bin/htmldog";
       }
     } else {
-      console.log(`  ${dim("You can use the CLI from the repo with:")} ./bin/sharehtml`);
-      cliCmd = "./bin/sharehtml";
+      console.log(`  ${dim("You can use the CLI from the repo with:")} ./bin/htmldog`);
+      cliCmd = "./bin/htmldog";
     }
   }
 

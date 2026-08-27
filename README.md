@@ -8,7 +8,7 @@ I've been using coding agents to write in markdown, make slides, and build inter
 
 Deploy a local document privately, then choose whether to collaborate with named people or publish an anonymous read-only link. Re-deploy to update the content at the same URL. Markdown and common code files are converted to styled HTML automatically.
 
-- **CLI deploys** — `sharehtml deploy report.html` → `https://artifacts.example.com/d/9brkzbe67ntm`
+- **CLI deploys** — `htmldog deploy report.html` → `https://artifacts.example.com/d/9brkzbe67ntm`
 - **Collaborative** — comments, threaded replies, emoji reactions, text anchoring
 - **Live presence** — see who's viewing and their selections
 - **Home page** — your documents and recently viewed docs shared with you
@@ -38,14 +38,14 @@ The fork ships a dependency-light shell client. Install it directly from the rep
 
 ```bash
 mkdir -p "$HOME/.local/bin"
-curl -fsSL https://raw.githubusercontent.com/love-lena/sharehtml/main/bin/sharehtml \
-  -o "$HOME/.local/bin/sharehtml"
-chmod +x "$HOME/.local/bin/sharehtml"
+curl -fsSL https://raw.githubusercontent.com/love-lena/sharehtml/main/bin/htmldog \
+  -o "$HOME/.local/bin/htmldog"
+chmod +x "$HOME/.local/bin/htmldog"
 ```
 
-Ensure `$HOME/.local/bin` is on `PATH`. The client needs only `curl` and `openssl`; macOS Keychain and Linux Secret Service are used when available. It defaults to `https://artifacts.lena.dog`, and another deployment can be selected with `sharehtml config set-url <url>`.
+Ensure `$HOME/.local/bin` is on `PATH`. The client needs only `curl` and `openssl`; macOS Keychain and Linux Secret Service are used when available. It defaults to `https://artifacts.lena.dog`, and another deployment can be selected with `htmldog config set-url <url>`.
 
-If your team already has a sharehtml worker deployed, install the script, run `sharehtml config set-url <your-team-url>`, then `sharehtml login`. For built-in auth, the command starts a PKCE-protected device authorization, opens the normal ShareHTML login page, and polls for completion. GitHub credentials never leave the Worker and `cloudflared` is not required. The resulting ShareHTML session lasts 24 hours and is stored in macOS Keychain or Linux Secret Service when available, with a mode-`0600` local fallback.
+If your team already has a sharehtml worker deployed, install the script, run `htmldog config set-url <your-team-url>`, then `htmldog login`. For built-in auth, the command starts a PKCE-protected device authorization, opens the normal ShareHTML login page, and polls for completion. GitHub credentials never leave the Worker and `cloudflared` is not required. The resulting ShareHTML session lasts 24 hours and is stored in macOS Keychain or Linux Secret Service when available, with a mode-`0600` local fallback.
 
 If you choose the legacy Cloudflare Access mode, you'll need a [Cloudflare API token](https://dash.cloudflare.com/profile/api-tokens) with these permissions:
 - **Account > Access: Apps and Policies > Edit**
@@ -55,13 +55,13 @@ If you choose the legacy Cloudflare Access mode, you'll need a [Cloudflare API t
 When it's done, try deploying one of the included examples:
 
 ```bash
-sharehtml deploy example/coffee-report.html
+htmldog deploy example/coffee-report.html
 # or try the markdown example:
-sharehtml deploy example/sample.md
+htmldog deploy example/sample.md
 # or the interactive slideshow example:
-sharehtml deploy example/nba-slideshow.html
+htmldog deploy example/nba-slideshow.html
 # or deploy a code file:
-sharehtml deploy apps/cli/src/index.ts
+htmldog deploy apps/cli/src/index.ts
 ```
 
 If a document with the same filename exists, the CLI will prompt to update it. Use `-u` to skip the prompt.
@@ -95,8 +95,8 @@ Local development does not require `VIEWER_CAPABILITY_SECRET`.
 To use the CLI locally:
 
 ```bash
-sharehtml config set-url http://localhost:5173
-sharehtml deploy my-report.html
+htmldog config set-url http://localhost:5173
+htmldog deploy my-report.html
 ```
 
 ## Architecture
@@ -134,8 +134,8 @@ Documents are private by default when Cloudflare Access is enabled:
 - `/d/:id` is the authenticated viewer. Owners and explicitly listed email addresses can collaborate here.
 - `/p/:id` is an anonymous, read-only viewer and only serves documents in link-sharing mode.
 - Owners with an active Cloudflare Access session can manage sharing directly from `/p/:id`; the control stays hidden for anonymous and non-owner viewers.
-- `sharehtml share <document> --link` enables the public route and prints its `/p/...` URL.
-- `sharehtml unshare <document>` disables both the public shell and content endpoint immediately. Public responses use `Cache-Control: no-store` and are marked `noindex`.
+- `htmldog share <document> link` enables the public route and prints its `/p/...` URL.
+- `htmldog unshare <document>` disables both the public shell and content endpoint immediately. Public responses use `Cache-Control: no-store` and are marked `noindex`.
 
 The Worker checks the document's current share mode on every public shell and content request. The document ID is not treated as the authorization check. Upload, source download, comments, WebSockets, document listing, and sharing controls remain behind Cloudflare Access.
 
@@ -143,18 +143,18 @@ The Worker checks the document's current share mode on every public shell and co
 
 | Command | Description |
 |---------|-------------|
-| `sharehtml deploy <file> [title]` | Upload a new HTML artifact |
-| `sharehtml update <id> <file> [title]` | Replace an existing artifact |
-| `sharehtml list` | List documents as JSON |
-| `sharehtml pull <id> <output>` | Download the original source |
-| `sharehtml comments <id>` | Fetch comments as JSON |
-| `sharehtml delete <id>` | Delete a document |
-| `sharehtml share <id> <mode> [emails]` | Set `link`, `private`, or `emails` sharing |
-| `sharehtml unshare <id>` | Make a document private |
-| `sharehtml login` | Authorize the shell client through ShareHTML and GitHub |
-| `sharehtml logout` | Remove the saved CLI session for the configured deployment |
-| `sharehtml config set-url <url>` | Set the sharehtml URL |
-| `sharehtml config show` | Show current configuration |
+| `htmldog deploy <file> [title]` | Upload a new HTML artifact |
+| `htmldog update <id> <file> [title]` | Replace an existing artifact |
+| `htmldog list` | List documents as JSON |
+| `htmldog pull <id> <output>` | Download the original source |
+| `htmldog comments <id>` | Fetch comments as JSON |
+| `htmldog delete <id>` | Delete a document |
+| `htmldog share <id> <mode> [emails]` | Set `link`, `private`, or `emails` sharing |
+| `htmldog unshare <id>` | Make a document private |
+| `htmldog login` | Authorize the shell client through ShareHTML and GitHub |
+| `htmldog logout` | Remove the saved CLI session for the configured deployment |
+| `htmldog config set-url <url>` | Set the sharehtml URL |
+| `htmldog config show` | Show current configuration |
 
 ## Agent Skill
 

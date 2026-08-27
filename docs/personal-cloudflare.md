@@ -60,12 +60,12 @@ Do not create a CNAME manually. The hostname must be inside an active Cloudflare
 After setup prints the final URL:
 
 ```bash
-sharehtml config set-url https://artifacts.lena.dog
-sharehtml login
-sharehtml deploy example/coffee-report.html
+htmldog config set-url https://artifacts.lena.dog
+htmldog login
+htmldog deploy example/coffee-report.html
 ```
 
-`sharehtml login` opens the same login page and polls a PKCE-protected device authorization until the browser approves it. The exchanged ShareHTML session lasts 24 hours; GitHub credentials are never returned to the CLI, and no `cloudflared` installation is needed. Verify all three paths:
+`htmldog login` opens the same login page and polls a PKCE-protected device authorization until the browser approves it. The exchanged ShareHTML session lasts 24 hours; GitHub credentials are never returned to the CLI, and no `cloudflared` installation is needed. Verify all three paths:
 
 1. Open `https://artifacts.lena.dog` in a private browser window and confirm the GitHub login page appears.
 2. Complete the login and confirm the ShareHTML home page loads.
@@ -74,9 +74,9 @@ sharehtml deploy example/coffee-report.html
 Then verify anonymous sharing and revocation:
 
 ```bash
-sharehtml share <document-id> --link
+htmldog share <document-id> link
 # Open the printed /p/... URL in a private browser window; no login should appear.
-sharehtml unshare <document-id>
+htmldog unshare <document-id>
 # The same /p/... URL should now return 404.
 ```
 
@@ -85,7 +85,7 @@ Also confirm there is no usable production `workers.dev` URL. Setup writes `work
 ## Ongoing use
 
 - Run `pnpm run deploy` after application changes.
-- Agents can run the normal `sharehtml login` and `sharehtml deploy <file>` commands.
+- Agents can run the normal `htmldog login` and `htmldog deploy <file>` commands.
 - Run `pnpm run setup` again to change the hostname or authentication configuration. Verify the new hostname before manually removing the old DNS record.
 - Uploaded documents live in the R2 bucket `sharehtml-documents`. Comments, users, and document metadata live in Durable Object SQLite storage.
 

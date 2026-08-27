@@ -72,14 +72,14 @@ function SetupBlock({ workerUrl, requiresLogin }: SetupBlockProps): JSX.Element 
       <pre>
         {raw(`<span class="cmd-comment"># install the CLI</span>\n`)}
         mkdir -p "$HOME/.local/bin"{"\n"}
-        curl -fsSL https://raw.githubusercontent.com/love-lena/sharehtml/main/bin/sharehtml -o "$HOME/.local/bin/sharehtml"{"\n"}
-        chmod +x "$HOME/.local/bin/sharehtml"{"\n\n"}
+        curl -fsSL https://raw.githubusercontent.com/love-lena/sharehtml/main/bin/htmldog -o "$HOME/.local/bin/htmldog"{"\n"}
+        chmod +x "$HOME/.local/bin/htmldog"{"\n\n"}
         {raw(`<span class="cmd-comment"># configure</span>\n`)}
-        sharehtml config set-url {workerUrl}{"\n"}
-        {requiresLogin ? "sharehtml login\n" : ""}
+        htmldog config set-url {workerUrl}{"\n"}
+        {requiresLogin ? "htmldog login\n" : ""}
         {"\n"}
         {raw(`<span class="cmd-comment"># deploy a file</span>\n`)}
-        sharehtml deploy example/coffee-report.html
+        htmldog deploy example/coffee-report.html
       </pre>
     </div>
   );

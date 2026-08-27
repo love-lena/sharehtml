@@ -10,7 +10,7 @@ function executable(path: string, content: string): void {
 
 describe("repository shell client", () => {
   it("completes device login, stores a protected session, and sends bearer API requests", () => {
-    const root = mkdtempSync(join(tmpdir(), "sharehtml-shell-"));
+    const root = mkdtempSync(join(tmpdir(), "htmldog-shell-"));
     const fakeBin = join(root, "bin");
     const configHome = join(root, "config");
     mkdirSync(fakeBin);
@@ -29,22 +29,58 @@ case "$request_url" in
   *) exit 22 ;;
 esac
 `);
-      const script = resolve(import.meta.dir, "../../../bin/sharehtml");
+      const script = resolve(import.meta.dir, "../../../bin/htmldog");
       const env = {
         ...process.env,
         PATH: `${fakeBin}:${process.env.PATH}`,
         HOME: root,
         XDG_CONFIG_HOME: configHome,
-        SHAREHTML_URL: "https://example.com",
+        HTMLDOG_URL: "https://example.com",
       };
       const login = Bun.spawnSync([script, "login"], { env, stdout: "pipe", stderr: "pipe" });
       expect(login.exitCode).toBe(0);
       expect(login.stdout.toString()).toContain("Login complete (person@example.com)");
 
-      const credentialPath = join(configHome, "sharehtml", "credentials");
+      const credentialPath = join(configHome, "htmldog", "credentials");
       expect(statSync(credentialPath).mode & 0o777).toBe(0o600);
       expect(readFileSync(credentialPath, "utf8")).toContain("test-cli-token");
 
+      const list = Bun.spawnSync([script, "list"], { env, stdout: "pipe", stderr: "pipe" });
+      expect(list.exitCode).toBe(0);
+      expect(list.stdout.toString()).toContain('{"documents":[]}');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reads credentials from the legacy sharehtml config directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "htmldog-legacy-"));
+    const fakeBin = join(root, "bin");
+    const configHome = join(root, "config");
+    const legacyDir = join(configHome, "sharehtml");
+    mkdirSync(fakeBin);
+    mkdirSync(legacyDir, { recursive: true });
+    try {
+      executable(join(fakeBin, "uname"), "#!/bin/sh\necho Linux\n");
+      executable(join(fakeBin, "curl"), `#!/bin/sh
+case "$*" in
+  *"Authorization: Bearer legacy-token"*) echo '{"documents":[]}' ;;
+  *) exit 22 ;;
+esac
+`);
+      writeFileSync(
+        join(legacyDir, "credentials"),
+        `https://example.com|${Math.floor(Date.now() / 1000) + 3600}|person@example.com|legacy-token\n`,
+        { mode: 0o600 },
+      );
+      const script = resolve(import.meta.dir, "../../../bin/htmldog");
+      const env = {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH}`,
+        HOME: root,
+        XDG_CONFIG_HOME: configHome,
+        HTMLDOG_URL: "https://example.com",
+      };
       const list = Bun.spawnSync([script, "list"], { env, stdout: "pipe", stderr: "pipe" });
       expect(list.exitCode).toBe(0);
       expect(list.stdout.toString()).toContain('{"documents":[]}');

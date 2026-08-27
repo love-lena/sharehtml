@@ -2,7 +2,7 @@
 
 I've been using coding agents to write in markdown, make slides, and build interactive data analysis as static HTML files. Sending those files around still gets messy fast: you can't update them after sharing, and there's no way to get feedback inline. This is the reason I built sharehtml.
 
-This private workspace package retains the richer TypeScript implementation and its tests. It is not published. The supported fork client is the dependency-light [`bin/sharehtml`](../../bin/sharehtml) shell script.
+This private workspace package retains the richer TypeScript implementation and its tests. It is not published. The supported fork client is the dependency-light [`bin/htmldog`](../../bin/htmldog) shell script.
 
 ## What is sharehtml?
 
