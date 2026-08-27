@@ -3,12 +3,14 @@ import { getCookie } from "hono/cookie";
 import { createRemoteJWKSet, jwtVerify, SignJWT } from "jose";
 import type { Context } from "hono";
 import type { AppBindings } from "../types.js";
+import { normalizeEmail } from "./email.js";
 
 export const SESSION_COOKIE = "sharehtml_session";
 
 export interface AuthUser {
   id: string;
   email: string;
+  emails?: string[];
   source: AuthSource;
 }
 
@@ -61,10 +63,10 @@ function getAuthSecret(env: Env): Uint8Array {
 
 export async function createBuiltinToken(
   env: Env,
-  user: Pick<AuthUser, "id" | "email" | "source">,
+  user: Pick<AuthUser, "id" | "email" | "source" | "emails">,
   expiresIn = "30d",
 ): Promise<string> {
-  return new SignJWT({ email: user.email, source: user.source })
+  return new SignJWT({ email: user.email, emails: getAuthEmails(user), source: user.source })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(user.id)
     .setIssuer("sharehtml")
@@ -82,8 +84,12 @@ export async function verifyBuiltinToken(env: Env, token: string): Promise<AuthU
       audience: "sharehtml",
     });
     if (!payload.sub || typeof payload.email !== "string") return null;
+    if (payload.source === "github" && !Array.isArray(payload.emails)) return null;
     const source: AuthSource = payload.source === "github" ? "github" : "email";
-    return { id: payload.sub, email: payload.email, source };
+    const emails = Array.isArray(payload.emails)
+      ? payload.emails.filter((email): email is string => typeof email === "string")
+      : [];
+    return { id: payload.sub, email: normalizeEmail(payload.email), emails: getAuthEmails({ email: payload.email, emails }), source };
   } catch {
     return null;
   }
@@ -128,3 +134,11 @@ export const authMiddleware = createMiddleware<AppBindings>(async (c, next) => {
   c.set("authUser", { ...user, source });
   return next();
 });
+
+export function getAuthEmails(user: Pick<AuthUser, "email" | "emails">): string[] {
+  return [...new Set([user.email, ...(user.emails || [])].map(normalizeEmail).filter(Boolean))];
+}
+
+export function authUserHasEmail(user: Pick<AuthUser, "email" | "emails">, email: string): boolean {
+  return getAuthEmails(user).includes(normalizeEmail(email));
+}

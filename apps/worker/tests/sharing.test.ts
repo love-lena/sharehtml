@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { exports } from "cloudflare:workers";
+import { canViewDocument } from "../src/utils/document-access.js";
 
 function registry() {
   return env.REGISTRY_DO.get(env.REGISTRY_DO.idFromName("global"));
@@ -50,6 +51,21 @@ describe("Share mode data layer", () => {
 // In AUTH_MODE=none, the authenticated user is always dev@localhost.
 // We test access control by creating docs owned by a different email.
 describe("Access control honors share modes", () => {
+  it("accepts any verified identity email for specific-person sharing", () => {
+    expect(canViewDocument(
+      { owner_email: "owner@example.com", is_shared: 2 },
+      ["primary@example.com", "invited@example.org"],
+      ["invited@example.org"],
+    )).toBe(true);
+  });
+
+  it("accepts a verified identity alias as the document owner", () => {
+    expect(canViewDocument(
+      { owner_email: "old-primary@example.org", is_shared: 0 },
+      ["new-primary@example.com", "old-primary@example.org"],
+    )).toBe(true);
+  });
+
   it("treats mixed-case owner emails as the same owner", async () => {
     await createDoc("owner-case", "Dev@Localhost", 0);
     const res = await exports.default.fetch("https://example.com/d/owner-case");

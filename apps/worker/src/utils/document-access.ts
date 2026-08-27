@@ -4,17 +4,17 @@ import { getRegistry } from "./registry.js";
 
 export function canViewDocument(
   doc: Pick<DocumentRow, "owner_email" | "is_shared">,
-  email: string,
+  emails: string | string[],
   sharedEmails?: string[],
 ): boolean {
-  const normalizedEmail = normalizeEmail(email);
-  if (emailsMatch(doc.owner_email, normalizedEmail)) return true;
+  const normalizedEmails = (Array.isArray(emails) ? emails : [emails]).map(normalizeEmail);
+  if (normalizedEmails.some((email) => emailsMatch(doc.owner_email, email))) return true;
 
   switch (shareModeFromInt(doc.is_shared)) {
     case "link":
       return true;
     case "emails":
-      return sharedEmails?.includes(normalizedEmail) ?? false;
+      return normalizedEmails.some((email) => sharedEmails?.includes(email) ?? false);
     case "private":
     default:
       return false;
@@ -24,7 +24,7 @@ export function canViewDocument(
 export async function loadDocWithAccessCheck(
   env: AppBindings["Bindings"],
   id: string,
-  email: string,
+  emails: string | string[],
 ): Promise<{ doc: DocumentRow; registry: ReturnType<typeof getRegistry> } | null> {
   const registry = getRegistry(env);
   const doc = await registry.getDocument(id);
@@ -33,7 +33,7 @@ export async function loadDocWithAccessCheck(
   const sharedEmails = shareModeFromInt(doc.is_shared) === "emails"
     ? await registry.getSharedEmails(id)
     : undefined;
-  if (!canViewDocument(doc, email, sharedEmails)) return null;
+  if (!canViewDocument(doc, emails, sharedEmails)) return null;
 
   return { doc, registry };
 }

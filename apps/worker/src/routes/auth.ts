@@ -38,7 +38,7 @@ async function authHash(env: Env, kind: string, value: string): Promise<string> 
   return sha256(`${env.AUTH_SECRET}:${kind}:${value}`);
 }
 
-async function setSession(c: Context<AppBindings>, user: { id: string; email: string; source: "github" | "email" }) {
+async function setSession(c: Context<AppBindings>, user: { id: string; email: string; emails?: string[]; source: "github" | "email" }) {
   const token = await createBuiltinToken(c.env, user);
   setCookie(c, SESSION_COOKIE, token, {
     httpOnly: true,
@@ -119,10 +119,11 @@ auth.get("/github/callback", async (c) => {
   ]);
   const user = await userResponse.json<{ id?: number; login?: string; name?: string; email?: string | null }>();
   const emails = emailsResponse.ok ? await emailsResponse.json<Array<{ email: string; primary: boolean; verified: boolean }>>() : [];
-  const email = normalizeEmail(emails.find((entry) => entry.primary && entry.verified)?.email || emails.find((entry) => entry.verified)?.email || "");
+  const verifiedEmails = [...new Set(emails.filter((entry) => entry.verified).map((entry) => normalizeEmail(entry.email)).filter(Boolean))];
+  const email = normalizeEmail(emails.find((entry) => entry.primary && entry.verified)?.email || verifiedEmails[0] || "");
   if (!user.id || !EMAIL_RE.test(email)) return loginPage(c, { error: "GitHub did not provide a verified email address." });
   await getRegistry(c.env).setUser(email, user.name || user.login || email.split("@")[0]);
-  await setSession(c, { id: `github:${user.id}`, email, source: "github" });
+  await setSession(c, { id: `github:${user.id}`, email, emails: verifiedEmails, source: "github" });
   return c.redirect(next);
 });
 

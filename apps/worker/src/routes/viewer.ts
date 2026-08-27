@@ -5,9 +5,10 @@ import { getAssetUrls } from "../utils/assets.js";
 import { createCapabilityToken } from "../utils/capability.js";
 import { loadDocWithAccessCheck } from "../utils/document-access.js";
 import { createAttachmentHeaders } from "../utils/download.js";
-import { emailsMatch, normalizeEmail } from "../utils/email.js";
+import { normalizeEmail } from "../utils/email.js";
 import { requireViewerBrowserCapability } from "../utils/request-security.js";
 import { getRenderedObject } from "../utils/document-storage.js";
+import { authUserHasEmail, getAuthEmails } from "../utils/auth.js";
 
 const CAPABILITY_TTL_SECONDS = 600;
 
@@ -16,9 +17,10 @@ const viewer = new Hono<AppBindings>();
 // Viewer shell
 viewer.get("/d/:id", async (c) => {
   const id = c.req.param("id");
-  const email = normalizeEmail(c.get("authUser").email);
+  const authUser = c.get("authUser");
+  const email = normalizeEmail(authUser.email);
 
-  const result = await loadDocWithAccessCheck(c.env, id, email);
+  const result = await loadDocWithAccessCheck(c.env, id, getAuthEmails(authUser));
   if (!result) return c.text("Not found", 404);
   const { doc, registry } = result;
 
@@ -41,7 +43,7 @@ viewer.get("/d/:id", async (c) => {
       email,
       authMode: c.env.AUTH_MODE,
       shareMode: shareModeFromInt(doc.is_shared),
-      canManageSharing: c.env.AUTH_MODE !== "none" && emailsMatch(doc.owner_email, email),
+      canManageSharing: c.env.AUTH_MODE !== "none" && authUserHasEmail(authUser, doc.owner_email),
       assets,
       viewerCapabilityToken,
     }),
@@ -52,12 +54,13 @@ viewer.get("/d/:id", async (c) => {
 // token expires so long-lived sessions keep working.
 viewer.post("/d/:id/capability", async (c) => {
   const id = c.req.param("id");
-  const email = normalizeEmail(c.get("authUser").email);
+  const authUser = c.get("authUser");
+  const email = normalizeEmail(authUser.email);
 
   const protectedResponse = await requireViewerBrowserCapability(c, id);
   if (protectedResponse) return protectedResponse;
 
-  const result = await loadDocWithAccessCheck(c.env, id, email);
+  const result = await loadDocWithAccessCheck(c.env, id, getAuthEmails(authUser));
   if (!result) return c.text("Not found", 404);
 
   const token = await createCapabilityToken(c.env, {
@@ -72,12 +75,13 @@ viewer.post("/d/:id/capability", async (c) => {
 // Rendered document bytes. The shell fetches this and assigns iframe.srcdoc.
 viewer.get("/d/:id/content", async (c) => {
   const id = c.req.param("id");
-  const email = normalizeEmail(c.get("authUser").email);
+  const authUser = c.get("authUser");
+  const email = normalizeEmail(authUser.email);
 
   const protectedResponse = await requireViewerBrowserCapability(c, id, { responseType: "text" });
   if (protectedResponse) return protectedResponse;
 
-  const result = await loadDocWithAccessCheck(c.env, id, email);
+  const result = await loadDocWithAccessCheck(c.env, id, getAuthEmails(authUser));
   if (!result) return c.text("Not found", 404);
   const { doc } = result;
 
@@ -99,7 +103,8 @@ viewer.get("/d/:id/content", async (c) => {
 // WebSocket proxy to Document DO
 viewer.get("/d/:id/ws", async (c) => {
   const id = c.req.param("id");
-  const email = normalizeEmail(c.get("authUser").email);
+  const authUser = c.get("authUser");
+  const email = normalizeEmail(authUser.email);
 
   const protectedResponse = await requireViewerBrowserCapability(c, id, {
     requireOrigin: true,
@@ -108,7 +113,7 @@ viewer.get("/d/:id/ws", async (c) => {
   });
   if (protectedResponse) return protectedResponse;
 
-  const result = await loadDocWithAccessCheck(c.env, id, email);
+  const result = await loadDocWithAccessCheck(c.env, id, getAuthEmails(authUser));
   if (!result) return c.text("Not found", 404);
 
   const headers = new Headers(c.req.raw.headers);

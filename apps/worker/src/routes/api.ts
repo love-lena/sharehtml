@@ -12,8 +12,9 @@ import {
   getSourceObject,
 } from "../utils/document-storage.js";
 import { createAttachmentHeaders } from "../utils/download.js";
-import { emailsMatch, normalizeEmail } from "../utils/email.js";
+import { normalizeEmail } from "../utils/email.js";
 import { requireHomeBrowserCapability, requireViewerBrowserCapability } from "../utils/request-security.js";
+import { authUserHasEmail, getAuthEmails } from "../utils/auth.js";
 
 const api = new Hono<AppBindings>();
 
@@ -302,7 +303,7 @@ api.get("/documents/:id/raw", async (c) => {
   if (protectedResponse) return protectedResponse;
   const registry = getRegistry(c.env);
   const doc = await registry.getDocument(id);
-  if (!doc || !emailsMatch(doc.owner_email, c.get("authUser").email)) {
+  if (!doc || !authUserHasEmail(c.get("authUser"), doc.owner_email)) {
     return c.json({ error: "not found" }, 404);
   }
 
@@ -333,7 +334,7 @@ api.get("/documents/:id/source", async (c) => {
   if (protectedResponse) return protectedResponse;
   const registry = getRegistry(c.env);
   const doc = await registry.getDocument(id);
-  if (!doc || !emailsMatch(doc.owner_email, c.get("authUser").email)) {
+  if (!doc || !authUserHasEmail(c.get("authUser"), doc.owner_email)) {
     return c.json({ error: "not found" }, 404);
   }
 
@@ -357,7 +358,7 @@ api.get("/documents/:id/rendered", async (c) => {
   if (protectedResponse) return protectedResponse;
   const registry = getRegistry(c.env);
   const doc = await registry.getDocument(id);
-  if (!doc || !emailsMatch(doc.owner_email, c.get("authUser").email)) {
+  if (!doc || !authUserHasEmail(c.get("authUser"), doc.owner_email)) {
     return c.json({ error: "not found" }, 404);
   }
 
@@ -381,7 +382,7 @@ api.get("/documents/:id", async (c) => {
   if (protectedResponse) return protectedResponse;
   const registry = getRegistry(c.env);
   const doc = await registry.getDocument(id);
-  if (!doc || !emailsMatch(doc.owner_email, c.get("authUser").email)) {
+  if (!doc || !authUserHasEmail(c.get("authUser"), doc.owner_email)) {
     return c.json({ error: "not found" }, 404);
   }
   return c.json({ document: doc });
@@ -413,7 +414,7 @@ api.put("/documents/:id", async (c) => {
     return c.json({ error: "not found" }, 404);
   }
 
-  if (!emailsMatch(meta.owner_email, c.get("authUser").email)) {
+  if (!authUserHasEmail(c.get("authUser"), meta.owner_email)) {
     return c.json({ error: "forbidden" }, 403);
   }
 
@@ -534,7 +535,7 @@ api.get("/documents/:id/share", async (c) => {
   if (protectedResponse) return protectedResponse;
   const registry = getRegistry(c.env);
   const doc = await registry.getDocument(id);
-  if (!doc || !emailsMatch(doc.owner_email, c.get("authUser").email)) {
+  if (!doc || !authUserHasEmail(c.get("authUser"), doc.owner_email)) {
     return c.json({ error: "not found" }, 404);
   }
   const mode = shareModeFromInt(doc.is_shared);
@@ -565,7 +566,7 @@ api.put("/documents/:id/share", async (c) => {
     return c.json({ error: "not found" }, 404);
   }
 
-  if (!emailsMatch(meta.owner_email, c.get("authUser").email)) {
+  if (!authUserHasEmail(c.get("authUser"), meta.owner_email)) {
     return c.json({ error: "forbidden" }, 403);
   }
 
@@ -592,7 +593,7 @@ api.delete("/documents/:id", async (c) => {
     return c.json({ error: "not found" }, 404);
   }
 
-  if (!emailsMatch(meta.owner_email, c.get("authUser").email)) {
+  if (!authUserHasEmail(c.get("authUser"), meta.owner_email)) {
     return c.json({ error: "forbidden" }, 403);
   }
 
@@ -620,7 +621,7 @@ api.get("/documents/:id/comments", async (c) => {
   const id = c.req.param("id");
   const protectedResponse = await requireViewerBrowserCapability(c, id, { requireOrigin: false });
   if (protectedResponse) return protectedResponse;
-  const result = await loadDocWithAccessCheck(c.env, id, c.get("authUser").email);
+  const result = await loadDocWithAccessCheck(c.env, id, getAuthEmails(c.get("authUser")));
   if (!result) {
     return c.json({ error: "not found" }, 404);
   }

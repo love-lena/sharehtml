@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { Hono } from "hono";
+import { SignJWT } from "jose";
 import { authMiddleware, createBuiltinToken, SESSION_COOKIE, verifyBuiltinToken } from "../src/utils/auth.js";
 import { getRegistry } from "../src/utils/registry.js";
 import type { AppBindings } from "../src/types.js";
@@ -10,12 +11,14 @@ describe("built-in authentication", () => {
     const token = await createBuiltinToken(authEnv, {
       id: "github:123",
       email: "person@example.com",
+      emails: ["person@example.com", "invited@example.org"],
       source: "github",
     }, "5m");
 
     await expect(verifyBuiltinToken(authEnv, token)).resolves.toMatchObject({
       id: "github:123",
       email: "person@example.com",
+      emails: ["person@example.com", "invited@example.org"],
       source: "github",
     });
     await expect(verifyBuiltinToken({ ...authEnv, AUTH_SECRET: "wrong" } as Env, token)).resolves.toBeNull();
@@ -42,6 +45,20 @@ describe("built-in authentication", () => {
       email: "person@example.com",
       source: "cookie",
     });
+  });
+
+  it("requires existing GitHub sessions to refresh their verified email aliases", async () => {
+    const authEnv = { ...env, AUTH_SECRET: "test-secret" } as Env;
+    const oldToken = await new SignJWT({ email: "person@example.com", source: "github" })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("github:123")
+      .setIssuer("sharehtml")
+      .setAudience("sharehtml")
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(new TextEncoder().encode("test-secret"));
+
+    await expect(verifyBuiltinToken(authEnv, oldToken)).resolves.toBeNull();
   });
 
   it("makes email codes single-use and limits rapid resends", async () => {
