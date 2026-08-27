@@ -97,7 +97,8 @@ export async function getBuiltinUser(c: Context<AppBindings>): Promise<AuthUser 
   }
   const cookie = getCookie(c, SESSION_COOKIE);
   if (!cookie) return null;
-  return verifyBuiltinToken(c.env, cookie);
+  const user = await verifyBuiltinToken(c.env, cookie);
+  return user ? { ...user, source: "cookie" } : null;
 }
 
 function unauthorized(c: Context<AppBindings>) {

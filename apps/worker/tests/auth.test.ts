@@ -1,6 +1,8 @@
 import { env } from "cloudflare:workers";
-import { createBuiltinToken, verifyBuiltinToken } from "../src/utils/auth.js";
+import { Hono } from "hono";
+import { authMiddleware, createBuiltinToken, SESSION_COOKIE, verifyBuiltinToken } from "../src/utils/auth.js";
 import { getRegistry } from "../src/utils/registry.js";
+import type { AppBindings } from "../src/types.js";
 
 describe("built-in authentication", () => {
   it("signs and verifies ShareHTML session tokens", async () => {
@@ -17,6 +19,29 @@ describe("built-in authentication", () => {
       source: "github",
     });
     await expect(verifyBuiltinToken({ ...authEnv, AUTH_SECRET: "wrong" } as Env, token)).resolves.toBeNull();
+  });
+
+  it("classifies a built-in browser session by its cookie transport", async () => {
+    const authEnv = { ...env, AUTH_MODE: "builtin", AUTH_SECRET: "test-secret" } as Env;
+    const token = await createBuiltinToken(authEnv, {
+      id: "github:123",
+      email: "person@example.com",
+      source: "github",
+    }, "5m");
+    const app = new Hono<AppBindings>();
+    app.use("/*", authMiddleware);
+    app.get("/", (c) => c.json(c.get("authUser")));
+
+    const response = await app.request("https://example.com/", {
+      headers: { Cookie: `${SESSION_COOKIE}=${token}` },
+    }, authEnv);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      id: "github:123",
+      email: "person@example.com",
+      source: "cookie",
+    });
   });
 
   it("makes email codes single-use and limits rapid resends", async () => {
