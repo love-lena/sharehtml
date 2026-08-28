@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { isRecord, isShareMode, isSourceKind, parseDocumentSnapshot, shareModeFromInt, shareModeToInt, type AppBindings, type DocumentSnapshot, type ShareMode, type SourceKind } from "../types.js";
+import { isRecord, isShareMode, isSourceKind, parseAnchorMigrationSummary, parseDocumentSnapshot, shareModeFromInt, shareModeToInt, type AnchorMigrationSummary, type AppBindings, type DocumentSnapshot, type ShareMode, type SourceKind } from "../types.js";
 import { nanoid } from "../utils/ids.js";
 import { loadDocWithAccessCheck } from "../utils/document-access.js";
 import { getRegistry } from "../utils/registry.js";
@@ -126,7 +126,7 @@ async function migrateDocumentAnchors(
   newHtml: string,
   oldText: string,
   newText: string,
-): Promise<void> {
+): Promise<AnchorMigrationSummary> {
   const response = await documentDo.fetch("https://document.local/migrate-anchors", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -136,6 +136,11 @@ async function migrateDocumentAnchors(
   if (!response.ok) {
     throw new Error(`anchor migration failed with status ${response.status}`);
   }
+  const summary = parseAnchorMigrationSummary(await response.json());
+  if (!summary) {
+    throw new Error("invalid anchor migration response from document DO");
+  }
+  return summary;
 }
 
 async function getDocumentSnapshot(documentDo: DurableObjectStub): Promise<DocumentSnapshot> {
@@ -465,8 +470,21 @@ api.put("/documents/:id", async (c) => {
 
   try {
     if (oldText !== null && newText !== null) {
-      await migrateDocumentAnchors(documentDo, nextHtml, oldText, newText);
+      const migration = await migrateDocumentAnchors(documentDo, nextHtml, oldText, newText);
       didMigrateAnchors = true;
+      if (migration.strategy === "coarse") {
+        console.warn({
+          level: "warn",
+          event: "anchor_migration_coarse",
+          documentId: id,
+          oldTextLength: oldText.length,
+          newTextLength: newText.length,
+          updatedComments: migration.updatedComments,
+          resolvedComments: migration.resolvedComments,
+          updatedReactions: migration.updatedReactions,
+          deletedReactions: migration.deletedReactions,
+        });
+      }
     }
 
     const r2Writes: Array<Promise<unknown>> = [

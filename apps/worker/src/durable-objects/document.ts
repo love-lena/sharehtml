@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { isRecord, parseDocumentSnapshot } from "../types.js";
-import type { CommentRow, ReactionRow, DocumentSnapshot } from "../types.js";
+import type { AnchorMigrationSummary, CommentRow, ReactionRow, DocumentSnapshot } from "../types.js";
 import type { ClientMessage, ServerMessage } from "@sharehtml/shared";
 import type { Anchor, Comment, Reaction, UserPresence } from "@sharehtml/shared";
 import { getRegistry } from "../utils/registry.js";
@@ -224,7 +224,9 @@ export class DocumentDO extends DurableObject<Env> {
         );
       }
 
-      const summary = await this.migrateAnchors(body.newHtml, body.oldText, body.newText);
+      const summary = await this.ctx.blockConcurrencyWhile(() => {
+        return this.migrateAnchors(body.newHtml, body.oldText, body.newText);
+      });
       return Response.json(summary);
     }
 
@@ -541,78 +543,144 @@ export class DocumentDO extends DurableObject<Env> {
     this.broadcast({ type: "reaction:added", reaction });
   }
 
-  private async migrateAnchors(newHtml: string, oldText: string, newText: string) {
-    let updatedComments = 0;
-    let resolvedComments = 0;
-    let reactionsChanged = false;
-    const textDiff = diffText(oldText, newText);
-    const nextElements = await collectAnnotatableElementsFromHtml(newHtml);
-
+  private async migrateAnchors(
+    newHtml: string,
+    oldText: string,
+    newText: string,
+  ): Promise<AnchorMigrationSummary> {
     const commentRows = this.sql.exec<CommentRow>("SELECT * FROM comments ORDER BY created_at ASC").toArray();
-    for (const row of commentRows) {
-      const comment = this.rowToComment(row);
+    const reactionRows = this.sql.exec<ReactionRow>("SELECT * FROM reactions ORDER BY created_at ASC").toArray();
+    const comments = commentRows.map((row) => this.rowToComment(row));
+    const reactions = reactionRows.map((row) => this.rowToReaction(row));
+    const anchors = [
+      ...comments.flatMap((comment) => comment.anchor ? [comment.anchor] : []),
+      ...reactions.map((reaction) => reaction.anchor),
+    ];
+
+    if (anchors.length === 0) {
+      return {
+        strategy: "none",
+        updatedComments: 0,
+        resolvedComments: 0,
+        updatedReactions: 0,
+        deletedReactions: 0,
+      };
+    }
+
+    const hasElementAnchors = anchors.some((anchor) => Boolean(getElementSelector(anchor)));
+    const hasTextAnchors = anchors.some((anchor) => !getElementSelector(anchor));
+    const textDiff = hasTextAnchors
+      ? diffText(oldText, newText)
+      : { operations: [], strategy: "exact" as const };
+    const nextElements = hasElementAnchors
+      ? await collectAnnotatableElementsFromHtml(newHtml)
+      : [];
+
+    type CommentMutation =
+      | { type: "resolve"; comment: Comment }
+      | { type: "update"; comment: Comment; anchor: Anchor };
+    type ReactionMutation =
+      | { type: "delete"; reaction: Reaction }
+      | { type: "update"; reaction: Reaction; anchor: Anchor };
+    const commentMutations: CommentMutation[] = [];
+    const reactionMutations: ReactionMutation[] = [];
+
+    for (const comment of comments) {
       if (!comment.anchor) continue;
 
-      const nextAnchor = this.remapAnchor(comment.anchor, oldText, newText, textDiff, nextElements);
+      const nextAnchor = this.remapAnchor(
+        comment.anchor,
+        oldText,
+        newText,
+        textDiff.operations,
+        nextElements,
+      );
       if (nextAnchor === "resolve") {
         if (comment.resolved) continue;
-        this.sql.exec(
-          "UPDATE comments SET resolved = 1, updated_at = datetime('now') WHERE id = ?",
-          comment.id,
-        );
-        resolvedComments++;
-        this.broadcast({
-          type: "comment:resolved",
-          id: comment.id,
-          resolved: true,
-        });
+        commentMutations.push({ type: "resolve", comment });
         continue;
       }
 
       if (!nextAnchor) continue;
-
-      this.sql.exec(
-        "UPDATE comments SET anchor = ?, updated_at = datetime('now') WHERE id = ?",
-        JSON.stringify(nextAnchor),
-        comment.id,
-      );
-      updatedComments++;
-
-      this.broadcast({
-        type: "comment:updated",
-        comment: { ...comment, anchor: nextAnchor },
-      });
+      commentMutations.push({ type: "update", comment, anchor: nextAnchor });
     }
 
-    const reactionRows = this.sql.exec<ReactionRow>("SELECT * FROM reactions ORDER BY created_at ASC").toArray();
-    for (const row of reactionRows) {
-      const reaction = this.rowToReaction(row);
-      const nextAnchor = this.remapAnchor(reaction.anchor, oldText, newText, textDiff, nextElements);
+    for (const reaction of reactions) {
+      const nextAnchor = this.remapAnchor(
+        reaction.anchor,
+        oldText,
+        newText,
+        textDiff.operations,
+        nextElements,
+      );
 
       if (nextAnchor === "resolve") {
-        this.sql.exec("DELETE FROM reactions WHERE id = ?", reaction.id);
-        reactionsChanged = true;
+        reactionMutations.push({ type: "delete", reaction });
         continue;
       }
 
       if (!nextAnchor) continue;
-
-      this.sql.exec(
-        "UPDATE reactions SET anchor = ? WHERE id = ?",
-        JSON.stringify(nextAnchor),
-        reaction.id,
-      );
-      reactionsChanged = true;
+      reactionMutations.push({ type: "update", reaction, anchor: nextAnchor });
     }
 
-    if (reactionsChanged) {
+    this.ctx.storage.transactionSync(() => {
+      for (const mutation of commentMutations) {
+        if (mutation.type === "resolve") {
+          this.sql.exec(
+            "UPDATE comments SET resolved = 1, updated_at = datetime('now') WHERE id = ?",
+            mutation.comment.id,
+          );
+        } else {
+          this.sql.exec(
+            "UPDATE comments SET anchor = ?, updated_at = datetime('now') WHERE id = ?",
+            JSON.stringify(mutation.anchor),
+            mutation.comment.id,
+          );
+        }
+      }
+
+      for (const mutation of reactionMutations) {
+        if (mutation.type === "delete") {
+          this.sql.exec("DELETE FROM reactions WHERE id = ?", mutation.reaction.id);
+        } else {
+          this.sql.exec(
+            "UPDATE reactions SET anchor = ? WHERE id = ?",
+            JSON.stringify(mutation.anchor),
+            mutation.reaction.id,
+          );
+        }
+      }
+    });
+
+    for (const mutation of commentMutations) {
+      if (mutation.type === "resolve") {
+        this.broadcast({
+          type: "comment:resolved",
+          id: mutation.comment.id,
+          resolved: true,
+        });
+      } else {
+        this.broadcast({
+          type: "comment:updated",
+          comment: { ...mutation.comment, anchor: mutation.anchor },
+        });
+      }
+    }
+
+    if (reactionMutations.length > 0) {
       this.broadcast({
         type: "reactions:list",
         reactions: this.getReactions(),
       });
     }
 
-    return { updatedComments, resolvedComments, reactionsChanged };
+    return {
+      strategy: textDiff.strategy,
+      updatedComments: commentMutations.filter((mutation) => mutation.type === "update").length,
+      resolvedComments: commentMutations.filter((mutation) => mutation.type === "resolve").length,
+      updatedReactions: reactionMutations.filter((mutation) => mutation.type === "update").length,
+      deletedReactions: reactionMutations.filter((mutation) => mutation.type === "delete").length,
+    };
   }
 
   private restoreSnapshot(snapshot: DocumentSnapshot): void {

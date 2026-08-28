@@ -84,6 +84,14 @@ export type DocumentSnapshot = {
   reactions: import("@sharehtml/shared").Reaction[];
 };
 
+export type AnchorMigrationSummary = {
+  strategy: "none" | "exact" | "coarse";
+  updatedComments: number;
+  resolvedComments: number;
+  updatedReactions: number;
+  deletedReactions: number;
+};
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -98,6 +106,25 @@ export function parseDocumentSnapshot(value: unknown): DocumentSnapshot | null {
     if (!isRecord(r) || typeof r.id !== "string" || typeof r.emoji !== "string") return null;
   }
   return value as DocumentSnapshot;
+}
+
+export function parseAnchorMigrationSummary(value: unknown): AnchorMigrationSummary | null {
+  if (!isRecord(value)) return null;
+  if (value.strategy !== "none" && value.strategy !== "exact" && value.strategy !== "coarse") {
+    return null;
+  }
+  const countKeys = [
+    "updatedComments",
+    "resolvedComments",
+    "updatedReactions",
+    "deletedReactions",
+  ] as const;
+  for (const key of countKeys) {
+    if (typeof value[key] !== "number" || !Number.isInteger(value[key]) || value[key] < 0) {
+      return null;
+    }
+  }
+  return value as AnchorMigrationSummary;
 }
 
 export type AppBindings = {

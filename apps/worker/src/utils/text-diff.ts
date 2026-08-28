@@ -3,14 +3,27 @@ export interface TextDiffOp {
   text: string;
 }
 
+export type TextDiffStrategy = "exact" | "coarse";
+
+export interface TextDiffResult {
+  operations: TextDiffOp[];
+  strategy: TextDiffStrategy;
+}
+
+export const MAX_MYERS_FRONTIER_ENTRIES = 50_000;
+export const MAX_MYERS_CHARACTER_COMPARISONS = 250_000;
+
 export interface TextRange {
   start: number;
   end: number;
 }
 
-export function diffText(oldText: string, newText: string): TextDiffOp[] {
+export function diffText(oldText: string, newText: string): TextDiffResult {
   if (oldText === newText) {
-    return oldText ? [{ type: "equal", text: oldText }] : [];
+    return {
+      operations: oldText ? [{ type: "equal", text: oldText }] : [],
+      strategy: "exact",
+    };
   }
 
   const prefixLength = getCommonPrefixLength(oldText, newText);
@@ -28,15 +41,18 @@ export function diffText(oldText: string, newText: string): TextDiffOp[] {
     operations.push({ type: "equal", text: prefix });
   }
 
+  let strategy: TextDiffStrategy = "exact";
   if (oldMiddle || newMiddle) {
-    operations.push(...diffMiddle(oldMiddle, newMiddle));
+    const middleDiff = diffMiddle(oldMiddle, newMiddle);
+    operations.push(...middleDiff.operations);
+    strategy = middleDiff.strategy;
   }
 
   if (suffix) {
     operations.push({ type: "equal", text: suffix });
   }
 
-  return mergeDiffOps(operations);
+  return { operations: mergeDiffOps(operations), strategy };
 }
 
 export function mapRangeThroughDiff(
@@ -116,27 +132,50 @@ function mapPositionThroughDiff(
   return null;
 }
 
-function diffMiddle(oldText: string, newText: string): TextDiffOp[] {
+function diffMiddle(oldText: string, newText: string): TextDiffResult {
   if (!oldText) {
-    return newText ? [{ type: "insert", text: newText }] : [];
+    return {
+      operations: newText ? [{ type: "insert", text: newText }] : [],
+      strategy: "exact",
+    };
   }
 
   if (!newText) {
-    return oldText ? [{ type: "delete", text: oldText }] : [];
+    return {
+      operations: oldText ? [{ type: "delete", text: oldText }] : [],
+      strategy: "exact",
+    };
   }
 
-  return buildMyersDiff(oldText, newText);
+  const operations = buildMyersDiff(oldText, newText);
+  if (operations) {
+    return { operations, strategy: "exact" };
+  }
+
+  return {
+    operations: [
+      { type: "delete", text: oldText },
+      { type: "insert", text: newText },
+    ],
+    strategy: "coarse",
+  };
 }
 
-function buildMyersDiff(oldText: string, newText: string): TextDiffOp[] {
+function buildMyersDiff(oldText: string, newText: string): TextDiffOp[] | null {
   const oldLength = oldText.length;
   const newLength = newText.length;
   const max = oldLength + newLength;
   const trace: Array<Map<number, number>> = [];
   let frontier = new Map<number, number>();
   frontier.set(1, 0);
+  let storedFrontierEntries = 0;
+  let characterComparisons = 0;
 
   for (let distance = 0; distance <= max; distance++) {
+    storedFrontierEntries += frontier.size;
+    if (storedFrontierEntries > MAX_MYERS_FRONTIER_ENTRIES) {
+      return null;
+    }
     trace.push(new Map(frontier));
 
     for (let diagonal = -distance; diagonal <= distance; diagonal += 2) {
@@ -152,11 +191,14 @@ function buildMyersDiff(oldText: string, newText: string): TextDiffOp[] {
         : (frontier.get(diagonal - 1) ?? 0) + 1;
       let newIndex = oldIndex - diagonal;
 
-      while (
-        oldIndex < oldLength &&
-        newIndex < newLength &&
-        oldText.charCodeAt(oldIndex) === newText.charCodeAt(newIndex)
-      ) {
+      while (oldIndex < oldLength && newIndex < newLength) {
+        characterComparisons++;
+        if (characterComparisons > MAX_MYERS_CHARACTER_COMPARISONS) {
+          return null;
+        }
+        if (oldText.charCodeAt(oldIndex) !== newText.charCodeAt(newIndex)) {
+          break;
+        }
         oldIndex++;
         newIndex++;
       }
@@ -169,10 +211,7 @@ function buildMyersDiff(oldText: string, newText: string): TextDiffOp[] {
     }
   }
 
-  return [
-    { type: "delete", text: oldText },
-    { type: "insert", text: newText },
-  ];
+  return null;
 }
 
 function backtrackMyers(

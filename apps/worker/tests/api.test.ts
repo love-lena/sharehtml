@@ -143,6 +143,37 @@ describe("Document API", () => {
     expect(await readUtf8(rawRes)).toBe("<h1>v2</h1>");
   });
 
+  it("updates a divergent document without annotations", async () => {
+    const original = `<main>${"old".repeat(6_450)}</main>`;
+    const revision = `<main>${"new-content".repeat(4_150)}</main>`;
+    const uploadRes = await uploadWithSource(
+      "report.html",
+      original,
+      "report.html",
+      original,
+      "html",
+    );
+    const doc = getRecord(await uploadRes.json());
+    const docId = getStringField(doc, "id");
+
+    const form = new FormData();
+    form.append("file", new File([revision], "report.html", { type: "text/html" }));
+    form.append("source", new File([revision], "report.html", { type: "text/html" }));
+    form.append("sourceKind", "html");
+    const updateRes = await exports.default.fetch(`https://example.com/api/documents/${docId}`, {
+      method: "PUT",
+      body: form,
+    });
+
+    expect(original.length).toBeGreaterThan(19_000);
+    expect(revision.length).toBeGreaterThan(41_000);
+    expect(updateRes.status).toBe(200);
+    const sourceRes = await exports.default.fetch(`https://example.com/api/documents/${docId}/source`);
+    const renderedRes = await exports.default.fetch(`https://example.com/api/documents/${docId}/rendered`);
+    expect(await readUtf8(sourceRes)).toBe(revision);
+    expect(await readUtf8(renderedRes)).toBe(revision);
+  });
+
   it("returns 404 for nonexistent document", async () => {
     const res = await exports.default.fetch("https://example.com/api/documents/nonexistent");
     expect(res.status).toBe(404);
