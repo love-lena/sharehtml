@@ -145,6 +145,7 @@ auth.get("/github/callback", async (c) => {
     return c.html(LoginView({ next, githubEnabled: githubEnabled(c.env), emailEnabled: emailEnabled(c.env), error: "GitHub login could not be verified. Please try again." }), 400);
   }
 
+  const callback = `${new URL(c.req.url).origin}/auth/github/callback`;
   const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
